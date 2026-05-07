@@ -1,0 +1,403 @@
+:root {
+  color-scheme: light;
+  --bg: #f5f7f8;
+  --panel: #ffffff;
+  --ink: #20262d;
+  --muted: #66717d;
+  --line: #d9e0e6;
+  --soft: #edf2f5;
+  --blue: #1463a5;
+  --cyan: #087b8f;
+  --green: #16805a;
+  --amber: #9a6210;
+  --red: #a0422a;
+  --violet: #6553b8;
+  --shadow: 0 18px 45px rgba(28, 43, 56, 0.09);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: #aebbc6;
+  background: #f9fbfc;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+
+.brand {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  background: #123f64;
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.brand h1,
+.toolbar h2,
+.empty-state h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.brand p,
+.toolbar p,
+.empty-state p,
+.drop-sub,
+.status,
+.node-sub,
+.details p {
+  margin: 5px 0 0;
+  color: var(--muted);
+}
+
+.drop-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px;
+  border: 1px dashed #9db1c2;
+  border-radius: 8px;
+  background: #f8fbfd;
+  cursor: pointer;
+}
+
+.drop-zone:focus-within,
+.drop-zone:hover {
+  border-color: var(--blue);
+  background: #f3f9fd;
+}
+
+.drop-zone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.drop-title {
+  font-weight: 700;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+}
+
+.field label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.field input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 11px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.stats div {
+  display: grid;
+  gap: 2px;
+  padding: 12px 8px;
+  border-right: 1px solid var(--line);
+  text-align: center;
+}
+
+.stats div:last-child {
+  border-right: 0;
+}
+
+.stats strong {
+  font-size: 19px;
+}
+
+.stats span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.status {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.workspace {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 14px 18px 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  padding: 10px 13px;
+  border-bottom-color: transparent;
+}
+
+.tab.is-active {
+  background: var(--bg);
+  border-color: var(--line);
+  border-bottom-color: var(--bg);
+  transform: translateY(1px);
+  color: var(--blue);
+  font-weight: 700;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.actions button {
+  min-width: 78px;
+  padding: 9px 12px;
+}
+
+.empty-state {
+  align-self: start;
+  margin: 24px 18px;
+  max-width: 700px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.diagram-panel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(360px, 1fr) auto;
+  gap: 12px;
+  padding: 0 18px 18px;
+}
+
+.diagram-wrap {
+  min-height: 0;
+  overflow: auto;
+  background:
+    linear-gradient(#eef3f6 1px, transparent 1px),
+    linear-gradient(90deg, #eef3f6 1px, transparent 1px),
+    var(--panel);
+  background-size: 32px 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+svg {
+  display: block;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.edge {
+  fill: none;
+  stroke: #8695a1;
+  stroke-width: 2;
+}
+
+.edge-label {
+  fill: #52616d;
+  font-size: 12px;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 5px;
+  stroke-linejoin: round;
+}
+
+.node-card {
+  fill: #fff;
+  stroke: #bdc9d3;
+  stroke-width: 1.5;
+  filter: drop-shadow(0 8px 18px rgba(31, 44, 56, 0.10));
+}
+
+.node-title {
+  fill: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.node-sub {
+  fill: var(--muted);
+  font-size: 12px;
+}
+
+.kind-trunk .node-card {
+  stroke: var(--blue);
+  fill: #f0f7fc;
+}
+
+.kind-did .node-card {
+  stroke: var(--amber);
+  fill: #fff8ea;
+}
+
+.kind-ivr .node-card {
+  stroke: var(--violet);
+  fill: #f3f1ff;
+}
+
+.kind-ringgroup .node-card,
+.kind-queue .node-card {
+  stroke: var(--green);
+  fill: #effaf4;
+}
+
+.kind-extension .node-card {
+  stroke: var(--red);
+  fill: #fff3ef;
+}
+
+.kind-voicemail .node-card {
+  stroke: #9b3d62;
+  fill: #fff1f6;
+}
+
+.kind-external .node-card {
+  stroke: var(--cyan);
+  fill: #effbfc;
+}
+
+.kind-end .node-card {
+  stroke-dasharray: 5 4;
+  fill: #f7f8f9;
+}
+
+.details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.detail-card {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.detail-card h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.detail-card ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.detail-card li {
+  margin: 4px 0;
+}
+
+.is-hidden {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .rail {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .tabs {
+    overflow-x: auto;
+  }
+}
