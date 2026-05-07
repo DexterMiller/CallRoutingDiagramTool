@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "dev": "npx wrangler pages dev dist"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "wrangler": "4.88.0"
+  }
 }
