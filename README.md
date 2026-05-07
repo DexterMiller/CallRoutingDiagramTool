@@ -1,2 +1,19 @@
 # CallRoutingDiagramTool
-Lets document some phone systems!
+
+A browser-based 3CX call routing diagram tool for Cloudflare Pages.
+
+Users upload a 3CX backup zip, and the app parses the backup locally in the browser to build top-down call flow diagrams for:
+
+- Inbound call flow
+- After-hours and holiday routing
+- Extension forwarding profiles
+
+The uploaded backup is not sent to a server by this static app.
+
+## Build
+
+```bash
+npm run build
+```
+
+The build copies the static app from `src/` into `dist/`, which is configured as the Cloudflare Pages output directory in `wrangler.toml`.
