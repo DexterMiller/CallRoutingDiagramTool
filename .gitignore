@@ -1,0 +1,10 @@
+dist/
+node_modules/
+.wrangler/
+.dev.vars
+
+# Local 3CX backups and generated proof-of-concept output can contain sensitive data.
+*.zip
+*Db.xml
+3cxtestbackup/
+*.routing.html
