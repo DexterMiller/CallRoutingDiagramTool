@@ -1,0 +1,292 @@
+const textDecoder = new TextDecoder("utf-8");
+
+export async function parseBackupFile(file) {
+  const buffer = await file.arrayBuffer();
+  const entries = readZipEntries(buffer);
+  const dbEntry = entries
+    .filter((entry) => /Db\.xml$/i.test(entry.name) && !entry.name.includes("/"))
+    .sort((a, b) => b.uncompressedSize - a.uncompressedSize)[0];
+
+  if (!dbEntry) {
+    throw new Error("No root database XML ending in Db.xml was found in this backup.");
+  }
+
+  const xmlText = await readEntryText(buffer, dbEntry);
+  const xml = new DOMParser().parseFromString(xmlText, "application/xml");
+  const error = xml.querySelector("parsererror");
+  if (error) {
+    throw new Error("The database XML could not be parsed.");
+  }
+
+  return parseSystem(xml, dbEntry.name);
+}
+
+function readZipEntries(buffer) {
+  const view = new DataView(buffer);
+  const eocdOffset = findEndOfCentralDirectory(view);
+  if (eocdOffset < 0) {
+    throw new Error("The selected file is not a readable zip archive.");
+  }
+
+  const totalEntries = view.getUint16(eocdOffset + 10, true);
+  const centralOffset = view.getUint32(eocdOffset + 16, true);
+  const entries = [];
+  let offset = centralOffset;
+
+  for (let index = 0; index < totalEntries; index += 1) {
+    if (view.getUint32(offset, true) !== 0x02014b50) {
+      throw new Error("The zip central directory is damaged or unsupported.");
+    }
+
+    const flags = view.getUint16(offset + 8, true);
+    const method = view.getUint16(offset + 10, true);
+    const compressedSize = view.getUint32(offset + 20, true);
+    const uncompressedSize = view.getUint32(offset + 24, true);
+    const nameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const localHeaderOffset = view.getUint32(offset + 42, true);
+    const nameBytes = new Uint8Array(buffer, offset + 46, nameLength);
+    const name = new TextDecoder(flags & 0x0800 ? "utf-8" : "utf-8").decode(nameBytes);
+
+    entries.push({ name, method, compressedSize, uncompressedSize, localHeaderOffset });
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+
+  return entries;
+}
+
+function findEndOfCentralDirectory(view) {
+  const min = Math.max(0, view.byteLength - 0xffff - 22);
+  for (let offset = view.byteLength - 22; offset >= min; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) {
+      return offset;
+    }
+  }
+  return -1;
+}
+
+async function readEntryText(buffer, entry) {
+  const view = new DataView(buffer);
+  const offset = entry.localHeaderOffset;
+  if (view.getUint32(offset, true) !== 0x04034b50) {
+    throw new Error("The zip local file header is damaged or unsupported.");
+  }
+
+  const nameLength = view.getUint16(offset + 26, true);
+  const extraLength = view.getUint16(offset + 28, true);
+  const dataStart = offset + 30 + nameLength + extraLength;
+  const compressed = buffer.slice(dataStart, dataStart + entry.compressedSize);
+
+  if (entry.method === 0) {
+    return textDecoder.decode(compressed);
+  }
+
+  if (entry.method === 8 && "DecompressionStream" in window) {
+    const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    const inflated = await new Response(stream).arrayBuffer();
+    return textDecoder.decode(inflated);
+  }
+
+  throw new Error("This browser cannot decompress the backup zip. Try current Chrome, Edge, or Firefox.");
+}
+
+function parseSystem(xml, sourceEntry) {
+  const root = xml.documentElement;
+  const tenant = children(first(root, "Tenants"))[0];
+  const dnContainer = first(tenant, "DN");
+  const system = {
+    sourceEntry,
+    version: text(first(root, "header"), "version"),
+    trunks: [],
+    ivrs: {},
+    ringGroups: {},
+    queues: {},
+    extensions: {},
+    routePoints: {},
+  };
+
+  if (!dnContainer) {
+    return system;
+  }
+
+  for (const child of children(dnContainer)) {
+    if (child.tagName === "Extension") {
+      const number = text(child, "Number");
+      system.extensions[number] = {
+        number,
+        firstName: text(child, "FirstName"),
+        lastName: text(child, "LastName"),
+        email: text(child, "EmailAddress"),
+        enabled: /^true$/i.test(text(child, "Enabled")),
+        currentProfile: text(child, "CurrentProfile"),
+        profiles: parseForwardingProfiles(child),
+      };
+    } else if (child.tagName === "IVR") {
+      const number = text(child, "Number");
+      system.ivrs[number] = {
+        number,
+        name: text(child, "Name"),
+        prompt: text(child, "PromptFilename"),
+        timeout: text(child, "Timeout"),
+        timeoutForwardType: text(child, "TimeoutForwardType"),
+        officeRoute: parseRouteString(text(child, "OfficeHoursRoute")),
+        outOfHoursRoute: parseRouteString(text(child, "OutOfOfficeHoursRoute")),
+        breakRoute: parseRouteString(text(child, "BreakTimeRoute")),
+        holidaysRoute: parseRouteString(text(child, "HolidaysRoute")),
+        options: descendants(child, "IVRForward").map((option) => ({
+          digit: text(option, "Number"),
+          destination: destinationFromTypeAndDn(text(option, "ForwardType"), text(option, "ForwardDN")),
+        })),
+      };
+    } else if (child.tagName === "RingGroup") {
+      const number = text(child, "Number");
+      system.ringGroups[number] = {
+        number,
+        name: text(child, "Name"),
+        strategy: text(child, "RingStrategy"),
+        ringTime: text(child, "RingTime"),
+        members: children(first(child, "Members"), "Member").map((m) => m.getAttribute("DN")).filter(Boolean),
+        noAnswer: parseForwardTypeDestination(first(child, "Destination")),
+      };
+    } else if (child.tagName === "Queue") {
+      const number = text(child, "Number");
+      system.queues[number] = {
+        number,
+        name: text(child, "Name"),
+        polling: text(child, "PollingStrategy"),
+        ringTimeout: text(child, "RingTimeout"),
+        masterTimeout: text(child, "MasterTimeout"),
+        introFile: text(child, "IntroFile"),
+        onHoldFile: text(child, "OnHoldFile"),
+        members: children(first(child, "Members"), "Member").map((m) => m.getAttribute("DN")).filter(Boolean),
+        timeoutDestination: parseForwardTypeDestination(first(child, "Destination")),
+      };
+    } else if (child.tagName === "RoutePoint") {
+      system.routePoints[text(child, "Number")] = text(child, "Name");
+    }
+  }
+
+  for (const child of children(dnContainer, "ExternalLine")) {
+    const gateway = first(child, "Gateway");
+    const trunk = {
+      number: text(child, "Number"),
+      name: text(gateway, "Name") || text(child, "Gateway") || text(child, "Name"),
+      direction: text(child, "Direction"),
+      dids: text(child, "DIDNumbers").split(",").map((did) => did.trim()).filter(Boolean),
+      rules: [],
+    };
+
+    for (const rule of children(first(child, "RoutingRules"), "ExternalLineRule")) {
+      const condition = first(first(rule, "Conditions"), "Condition");
+      const destinations = first(rule, "ForwardDestinations");
+      trunk.rules.push({
+        name: text(rule, "RuleName"),
+        condition: condition?.getAttribute("Type") || "",
+        match: text(rule, "Data"),
+        office: parseDestinationElement(first(destinations, "OfficeHoursDestination")),
+        outOfHours: parseDestinationElement(first(destinations, "OutOfOfficeHoursDestination")),
+        holidays: parseDestinationElement(first(destinations, "HolidaysDestination")),
+      });
+    }
+
+    system.trunks.push(trunk);
+  }
+
+  return system;
+}
+
+function parseForwardingProfiles(extension) {
+  return children(first(extension, "FwdProfiles"), "FwdProfile").map((profile) => {
+    const available = first(profile, "AvailableRoute");
+    const away = first(profile, "AwayRoute");
+    const routes = [];
+
+    for (const state of ["NoAnswer", "Busy", "NotRegistered"]) {
+      const stateEl = first(available, state);
+      if (stateEl) {
+        routes.push({
+          state,
+          audience: "All calls",
+          destination: parseDestinationElement(first(stateEl, "AllCalls")),
+        });
+        routes.push({
+          state,
+          audience: "Internal",
+          destination: parseDestinationElement(first(stateEl, "Internal")),
+        });
+      }
+    }
+
+    for (const audience of ["Internal", "External"]) {
+      const audienceEl = first(away, audience);
+      if (audienceEl) {
+        routes.push({
+          state: "All hours",
+          audience,
+          destination: parseDestinationElement(first(audienceEl, "AllHours")),
+        });
+        routes.push({
+          state: "Out of office hours",
+          audience,
+          destination: parseDestinationElement(first(audienceEl, "OutOfOfficeHours")),
+        });
+      }
+    }
+
+    return {
+      name: text(profile, "Name"),
+      noAnswerTimeout: text(profile, "NoAnswerTimeout"),
+      ringMyMobile: /^true$/i.test(text(profile, "RingMyMobile")),
+      disableRingGroupCalls: /^true$/i.test(text(profile, "DisableRingGroupCalls")),
+      routes: routes.filter((route) => route.destination),
+    };
+  });
+}
+
+function parseForwardTypeDestination(el) {
+  if (!el) return null;
+  return destinationFromTypeAndDn(text(el, "ForwardType"), text(el, "ForwardDN"));
+}
+
+function parseDestinationElement(el) {
+  if (!el) return null;
+  const kind = text(el, "To");
+  if (!kind) return null;
+  if (kind === "None") return { kind: "None", dn: "", external: "" };
+  return {
+    kind,
+    dn: first(el, "Internal")?.getAttribute("DN") || "",
+    external: text(el, "External"),
+  };
+}
+
+function parseRouteString(raw) {
+  if (!raw || raw.startsWith("ProceedWithNoExceptions")) return null;
+  const [kind, dn = ""] = raw.split(".");
+  return { kind, dn, external: "", raw };
+}
+
+function destinationFromTypeAndDn(kind, dn) {
+  if (!kind) return null;
+  return { kind, dn: dn || "", external: "" };
+}
+
+function first(el, tagName) {
+  return children(el, tagName)[0] || null;
+}
+
+function children(el, tagName) {
+  if (!el) return [];
+  return Array.from(el.children).filter((child) => !tagName || child.tagName === tagName);
+}
+
+function descendants(el, tagName) {
+  if (!el) return [];
+  return Array.from(el.getElementsByTagName(tagName));
+}
+
+function text(el, tagName) {
+  const target = tagName ? first(el, tagName) : el;
+  return target?.textContent?.trim() || "";
+}
