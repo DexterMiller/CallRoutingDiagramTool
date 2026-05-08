@@ -16,6 +16,7 @@ let currentSystem = null;
 let currentPage = "all-trunks";
 let lastRenderedGraph = null;
 let lastQuery = "";
+let hoursMode = "all";
 
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
@@ -45,12 +46,22 @@ fileInput.addEventListener("change", async () => {
 searchInput.addEventListener("input", () => render());
 
 const tabsEl = document.querySelector("#tabs");
+const hoursTabsEl = document.querySelector("#hours-tabs");
 
 tabsEl.addEventListener("click", (event) => {
   const button = event.target.closest(".tab");
   if (!button) return;
   currentPage = button.dataset.page;
   setActiveTab(button);
+  updatePageHeader();
+  render();
+});
+
+hoursTabsEl.addEventListener("click", (event) => {
+  const button = event.target.closest(".subtab");
+  if (!button) return;
+  hoursMode = button.dataset.hours || "all";
+  setActiveHoursTab(button);
   updatePageHeader();
   render();
 });
@@ -76,7 +87,7 @@ function render() {
   if (!currentSystem) return;
 
   const query = searchInput.value.trim().toLowerCase();
-  const graph = buildGraph(currentSystem, currentPage);
+  const graph = buildGraph(currentSystem, currentPage, hoursMode);
   const filtered = filterGraph(graph, query);
   lastRenderedGraph = filtered;
   lastQuery = query;
@@ -85,12 +96,12 @@ function render() {
   setStatus(statusForGraph(currentSystem, filtered, query));
 }
 
-function buildGraph(system, page) {
+function buildGraph(system, page, selectedHoursMode = "all") {
   const trunkNumber = page === "all-trunks" ? null : page.replace("trunk:", "");
-  return buildTrunkGraph(system, trunkNumber);
+  return buildTrunkGraph(system, trunkNumber, selectedHoursMode);
 }
 
-function buildTrunkGraph(system, selectedTrunkNumber = null) {
+function buildTrunkGraph(system, selectedTrunkNumber = null, selectedHoursMode = "all") {
   const graph = createGraph(system);
 
   system.trunks
@@ -121,9 +132,15 @@ function buildTrunkGraph(system, selectedTrunkNumber = null) {
         search: [rule.name, rule.match, rule.condition].join(" "),
       });
       addEdge(graph, trunkId, ruleId, "DID");
-      expandDestination(graph, rule.office, ruleId, 2, "Office hours");
-      expandDestination(graph, rule.outOfHours, ruleId, 2, "After-hours");
-      expandDestination(graph, rule.holidays, ruleId, 2, "Holiday");
+      if (selectedHoursMode === "all" || selectedHoursMode === "office") {
+        expandDestination(graph, rule.office, ruleId, 2, "Office hours");
+      }
+      if (selectedHoursMode === "all" || selectedHoursMode === "after") {
+        expandDestination(graph, rule.outOfHours, ruleId, 2, "After-hours");
+      }
+      if (selectedHoursMode === "all" || selectedHoursMode === "holiday") {
+        expandDestination(graph, rule.holidays, ruleId, 2, "Holiday");
+      }
     });
   });
 
@@ -479,6 +496,10 @@ function createTab(page, label, active = false) {
   return button;
 }
 
+function setActiveHoursTab(activeButton) {
+  hoursTabsEl.querySelectorAll(".subtab").forEach((tab) => tab.classList.toggle("is-active", tab === activeButton));
+}
+
 function setActiveTab(activeButton) {
   tabsEl.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("is-active", tab === activeButton));
 }
@@ -494,13 +515,13 @@ function updatePageHeader() {
   const selectedTrunk = getSelectedTrunk(currentSystem, currentPage);
   if (!selectedTrunk) {
     pageTitle.textContent = "All Trunks";
-    pageSubtitle.textContent = "Calls enter from trunks at the top and flow down through office hours, after-hours, and holiday destinations.";
+    pageSubtitle.textContent = `Calls enter from trunks at the top and flow down through ${hoursModeLabel(hoursMode)} destinations.`;
     return;
   }
 
   const trunkLabel = selectedTrunk.name || `Trunk ${selectedTrunk.number || "(unnumbered)"}`;
   pageTitle.textContent = trunkLabel;
-  pageSubtitle.textContent = `Call flow for SIP trunk ${selectedTrunk.number || trunkLabel}, including office hours, after-hours, and holiday routing.`;
+  pageSubtitle.textContent = `Call flow for SIP trunk ${selectedTrunk.number || trunkLabel}, filtered to ${hoursModeLabel(hoursMode)} routes.`;
 }
 
 function updateStats(system) {
@@ -534,6 +555,13 @@ function getIvrExtensions(system, ivr) {
     .map((dest) => dest.dn);
 
   return formatExtensionList(extensionDestinations);
+}
+
+function hoursModeLabel(mode) {
+  if (mode === "office") return "office-hours";
+  if (mode === "after") return "after-hours";
+  if (mode === "holiday") return "holiday";
+  return "office-hours, after-hours, and holiday";
 }
 
 function el(tag, attributes = {}, text = "") {
