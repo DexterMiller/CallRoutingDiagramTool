@@ -184,21 +184,17 @@ function expandDestination(graph, destination, fromId, depth, label) {
   if (dest.kind === "IVR" && system.ivrs[dest.dn]) {
     const ivr = system.ivrs[dest.dn];
     ivr.options.forEach((option) => {
+      const optionDest = normalizeDestination(option.destination);
+      if (optionDest?.kind === "Extension") return;
       expandDestination(graph, option.destination, nodeId, depth + 1, option.digit ? `Press ${option.digit}` : "Menu");
     });
     expandDestination(graph, ivr.officeRoute, nodeId, depth + 1, "Office route");
     expandDestination(graph, ivr.outOfHoursRoute, nodeId, depth + 1, "After-hours");
   } else if (dest.kind === "RingGroup" && system.ringGroups[dest.dn]) {
     const rg = system.ringGroups[dest.dn];
-    rg.members.forEach((member) => {
-      expandDestination(graph, { kind: "Extension", dn: member }, nodeId, depth + 1, "Member");
-    });
     expandDestination(graph, rg.noAnswer, nodeId, depth + 1, "No answer");
   } else if (dest.kind === "Queue" && system.queues[dest.dn]) {
     const queue = system.queues[dest.dn];
-    queue.members.forEach((member) => {
-      expandDestination(graph, { kind: "Extension", dn: member }, nodeId, depth + 1, "Agent");
-    });
     expandDestination(graph, queue.timeoutDestination, nodeId, depth + 1, "Timeout");
   }
 }
@@ -248,15 +244,21 @@ function destinationLabel(system, dest) {
   }
   if (dest.kind === "IVR") {
     const ivr = system.ivrs[dest.dn];
-    return { kind: "IVR", title: `IVR ${dest.dn}`, sub: ivr?.name || "Digital receptionist" };
+    const extensionList = getIvrExtensions(system, ivr);
+    const detail = [ivr?.name || "Digital receptionist", extensionList && `Ext: ${extensionList}`].filter(Boolean).join(" | ");
+    return { kind: "IVR", title: `IVR ${dest.dn}`, sub: detail };
   }
   if (dest.kind === "RingGroup") {
     const rg = system.ringGroups[dest.dn];
-    return { kind: "RingGroup", title: `Ring Group ${dest.dn}`, sub: rg?.name || "" };
+    const memberList = formatExtensionList(rg?.members || []);
+    const detail = [rg?.name || "", memberList && `Ext: ${memberList}`].filter(Boolean).join(" | ");
+    return { kind: "RingGroup", title: `Ring Group ${dest.dn}`, sub: detail };
   }
   if (dest.kind === "Queue") {
     const queue = system.queues[dest.dn];
-    return { kind: "Queue", title: `Queue ${dest.dn}`, sub: queue?.name || "" };
+    const memberList = formatExtensionList(queue?.members || []);
+    const detail = [queue?.name || "", memberList && `Ext: ${memberList}`].filter(Boolean).join(" | ");
+    return { kind: "Queue", title: `Queue ${dest.dn}`, sub: detail };
   }
   if (dest.kind === "RoutePoint") {
     return { kind: "RoutePoint", title: `Route Point ${dest.dn}`, sub: system.routePoints[dest.dn] || "" };
@@ -514,6 +516,24 @@ function setStatus(message) {
 function displayExtension(extension) {
   if (!extension) return "";
   return `${extension.firstName || ""} ${extension.lastName || ""}`.trim() || extension.number || "";
+}
+
+function formatExtensionList(members) {
+  if (!members.length) return "";
+  return Array.from(new Set(members)).join(", ");
+}
+
+function getIvrExtensions(system, ivr) {
+  if (!ivr) return "";
+  const extensionDestinations = [
+    ...ivr.options.map((option) => normalizeDestination(option.destination)),
+    normalizeDestination(ivr.officeRoute),
+    normalizeDestination(ivr.outOfHoursRoute),
+  ]
+    .filter((dest) => dest?.kind === "Extension")
+    .map((dest) => dest.dn);
+
+  return formatExtensionList(extensionDestinations);
 }
 
 function el(tag, attributes = {}, text = "") {
