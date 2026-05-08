@@ -14,6 +14,8 @@ const pageSubtitle = document.querySelector("#page-subtitle");
 
 let currentSystem = null;
 let currentPage = "all-trunks";
+let lastRenderedGraph = null;
+let lastQuery = "";
 
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
@@ -57,13 +59,15 @@ document.querySelector("#fit-view").addEventListener("click", () => {
   diagramWrap.scrollTo({ top: 0, left: 0, behavior: "smooth" });
 });
 
-document.querySelector("#export-svg").addEventListener("click", () => {
-  if (!currentSystem) return;
-  const blob = new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml" });
+document.querySelector("#export-html").addEventListener("click", () => {
+  if (!currentSystem || !lastRenderedGraph) return;
+
+  const html = buildTreeExportHtml(currentSystem, lastRenderedGraph, currentPage, lastQuery);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${currentPage}-call-routing.svg`;
+  a.download = `${currentPage}-call-routing-tree.html`;
   a.click();
   URL.revokeObjectURL(url);
 });
@@ -74,6 +78,8 @@ function render() {
   const query = searchInput.value.trim().toLowerCase();
   const graph = buildGraph(currentSystem, currentPage);
   const filtered = filterGraph(graph, query);
+  lastRenderedGraph = filtered;
+  lastQuery = query;
   renderSvg(filtered);
   renderDetails(currentSystem, currentPage, filtered, query);
   setStatus(statusForGraph(currentSystem, filtered, query));
@@ -515,4 +521,77 @@ function el(tag, attributes = {}, text = "") {
   Object.entries(attributes).forEach(([key, value]) => node.setAttribute(key, value));
   if (text) node.textContent = text;
   return node;
+}
+
+
+function buildTreeExportHtml(system, graph, page, query) {
+  const byId = new Map(Array.from(graph.nodes.values()).map((node) => [node.id, node]));
+  const outgoing = new Map();
+  const incoming = new Set();
+
+  graph.edges.forEach((edge) => {
+    if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
+    outgoing.get(edge.from).push(edge);
+    incoming.add(edge.to);
+  });
+
+  const roots = Array.from(graph.nodes.values())
+    .filter((node) => !incoming.has(node.id))
+    .sort((a, b) => a.title.localeCompare(b.title));
+
+  const seen = new Set();
+
+  function renderNode(nodeId) {
+    if (seen.has(nodeId)) return '<li><em>Loop detected</em></li>';
+    seen.add(nodeId);
+
+    const node = byId.get(nodeId);
+    if (!node) return "";
+
+    const children = (outgoing.get(nodeId) || []).map((edge) => {
+      const target = byId.get(edge.to);
+      const edgeLabel = edge.label ? `<span class=\"edge\">${escapeHtml(edge.label)}:</span> ` : "";
+      return `<li>${edgeLabel}${renderNode(edge.to)}</li>`;
+    }).join("");
+
+    const subtitle = node.sub ? `<div class=\"sub\">${escapeHtml(node.sub)}</div>` : "";
+    const childList = children ? `<ul>${children}</ul>` : "";
+    return `<div class=\"node\"><strong>${escapeHtml(node.title)}</strong> <span class=\"kind\">(${escapeHtml(node.kind)})</span>${subtitle}</div>${childList}`;
+  }
+
+  const renderedTrees = roots.map((root) => `<li>${renderNode(root.id)}</li>`).join("");
+  const exportedAt = new Date().toISOString();
+
+  return `<!doctype html>
+<html lang=\"en\">
+<head>
+<meta charset=\"utf-8\">
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+<title>Call Routing Tree Export</title>
+<style>
+body { font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif; margin: 2rem; color: #1f2937; }
+h1 { margin-bottom: 0.25rem; }
+.meta { color: #4b5563; margin-bottom: 1rem; }
+ul { line-height: 1.45; }
+.node { margin: 0.35rem 0; }
+.sub { color: #4b5563; margin-left: 0.25rem; font-size: 0.93rem; }
+.kind { color: #6b7280; font-size: 0.9rem; }
+.edge { color: #374151; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>3CX Call Routing Tree</h1>
+<p class=\"meta\">Page: ${escapeHtml(page)} | Filter: ${escapeHtml(query || "(none)")} | Exported: ${escapeHtml(exportedAt)} | Trunks: ${system.trunks.length}</p>
+<ul>${renderedTrees}</ul>
+</body>
+</html>`;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
