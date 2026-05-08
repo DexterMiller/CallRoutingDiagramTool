@@ -289,12 +289,22 @@ function filterGraph(graph, query) {
     return { nodes: allNodes, edges: graph.edges };
   }
 
+  const outgoing = new Map();
+  const incoming = new Map();
+  graph.edges.forEach((edge) => {
+    if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
+    if (!incoming.has(edge.to)) incoming.set(edge.to, []);
+    outgoing.get(edge.from).push(edge.to);
+    incoming.get(edge.to).push(edge.from);
+  });
+
   const keep = new Set();
+
   allNodes.forEach((node) => {
-    if (node.search.includes(query)) {
-      keep.add(node.id);
-      collectNeighbors(graph, node.id, keep);
-    }
+    if (!node.search.includes(query)) return;
+    keep.add(node.id);
+    collectAncestors(node.id, incoming, keep);
+    collectDescendants(node.id, outgoing, keep);
   });
 
   return {
@@ -303,10 +313,21 @@ function filterGraph(graph, query) {
   };
 }
 
-function collectNeighbors(graph, id, keep) {
-  graph.edges.forEach((edge) => {
-    if (edge.from === id) keep.add(edge.to);
-    if (edge.to === id) keep.add(edge.from);
+function collectAncestors(id, incoming, keep) {
+  const parents = incoming.get(id) || [];
+  parents.forEach((parentId) => {
+    if (keep.has(parentId)) return;
+    keep.add(parentId);
+    collectAncestors(parentId, incoming, keep);
+  });
+}
+
+function collectDescendants(id, outgoing, keep) {
+  const children = outgoing.get(id) || [];
+  children.forEach((childId) => {
+    if (keep.has(childId)) return;
+    keep.add(childId);
+    collectDescendants(childId, outgoing, keep);
   });
 }
 
