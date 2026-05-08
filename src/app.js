@@ -123,13 +123,14 @@ function buildTrunkGraph(system, selectedTrunkNumber = null, selectedHoursMode =
     }];
 
     rules.forEach((rule, ruleIndex) => {
+      const didTokens = extractDidTokens(rule, trunk);
       const ruleId = addNode(graph, {
         key: `did:${trunk.number}:${ruleIndex}`,
         kind: "DID",
         title: rule.match || rule.name || "Any DID",
         sub: rule.name || rule.condition || "DID rule",
         depth: 1,
-        search: [rule.name, rule.match, rule.condition].join(" "),
+        search: [rule.name, rule.match, rule.condition, ...didTokens].join(" "),
       });
       addEdge(graph, trunkId, ruleId, "DID");
       if (selectedHoursMode === "all" || selectedHoursMode === "office") {
@@ -173,6 +174,7 @@ function addNode(graph, node) {
     sub: node.sub || "",
     depth: node.depth || 0,
     search: `${node.kind} ${node.title || ""} ${node.sub || ""} ${node.search || ""}`.toLowerCase(),
+    searchNormalized: normalizeSearchText(`${node.kind} ${node.title || ""} ${node.sub || ""} ${node.search || ""}`),
   });
   return id;
 }
@@ -288,6 +290,8 @@ function filterGraph(graph, query) {
   if (!query) {
     return { nodes: allNodes, edges: graph.edges };
   }
+  const normalizedQuery = normalizeSearchText(query);
+  const numericDidQuery = looksLikeDidQuery(query);
 
   const outgoing = new Map();
   const incoming = new Map();
@@ -301,7 +305,9 @@ function filterGraph(graph, query) {
   const keep = new Set();
 
   allNodes.forEach((node) => {
-    if (!node.search.includes(query)) return;
+    const isMatch = node.search.includes(query) || node.searchNormalized.includes(normalizedQuery);
+    if (!isMatch) return;
+    if (numericDidQuery && node.kind !== "DID") return;
     keep.add(node.id);
     collectAncestors(node.id, incoming, keep);
     collectDescendants(node.id, outgoing, keep);
@@ -346,17 +352,14 @@ function renderSvg(graph) {
   const vGap = 96;
   const margin = 38;
   const layers = groupByDepth(graph);
-  const maxLayer = Math.max(...layers.map((layer) => layer.length));
-  const width = Math.max(900, margin * 2 + maxLayer * nodeWidth + (maxLayer - 1) * hGap);
+  const positions = computeLayerPositions(layers, graph.edges, nodeWidth, hGap, margin);
+  const maxX = Math.max(...graph.nodes.map((node) => node.x || 0));
+  const width = Math.max(900, maxX + nodeWidth + margin);
   const height = Math.max(420, margin * 2 + layers.length * nodeHeight + (layers.length - 1) * vGap);
   const byId = new Map(graph.nodes.map((node) => [node.id, node]));
-
-  layers.forEach((layer, depth) => {
-    const layerWidth = layer.length * nodeWidth + Math.max(0, layer.length - 1) * hGap;
-    const startX = (width - layerWidth) / 2;
-    layer.forEach((node, index) => {
-      node.x = startX + index * (nodeWidth + hGap);
-      node.y = margin + depth * (nodeHeight + vGap);
+  positions.forEach((layer) => {
+    layer.forEach((node) => {
+      node.y = margin + node.depth * (nodeHeight + vGap);
     });
   });
 
@@ -403,6 +406,104 @@ function renderSvg(graph) {
     appendWrappedText(group, node.sub, 14, 50, 29, "node-sub");
     nodeLayer.append(group);
   });
+}
+
+function computeLayerPositions(layers, edges, nodeWidth, hGap, margin) {
+  const minGap = nodeWidth + hGap;
+  const outgoing = new Map();
+  const incoming = new Map();
+  edges.forEach((edge) => {
+    if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
+    if (!incoming.has(edge.to)) incoming.set(edge.to, []);
+    outgoing.get(edge.from).push(edge.to);
+    incoming.get(edge.to).push(edge.from);
+  });
+
+  const nodeById = new Map(layers.flat().map((node) => [node.id, node]));
+  const rootLayer = layers[0] || [];
+  rootLayer.forEach((node, index) => {
+    node.x = margin + index * minGap;
+  });
+
+  for (let depth = 1; depth < layers.length; depth += 1) {
+    const layer = layers[depth];
+    layer.forEach((node, index) => {
+      const parents = (incoming.get(node.id) || [])
+        .map((parentId) => nodeById.get(parentId))
+        .filter((parent) => parent && Number.isFinite(parent.x))
+        .sort((a, b) => a.x - b.x);
+      if (!parents.length) {
+        node.targetX = margin + index * minGap;
+      } else if (parents.length === 1) {
+        node.targetX = parents[0].x;
+      } else {
+        const mid = Math.floor(parents.length / 2);
+        node.targetX = parents.length % 2 ? parents[mid].x : (parents[mid - 1].x + parents[mid].x) / 2;
+      }
+      node.x = node.targetX;
+    });
+    resolveLayerCollisions(layer, minGap, margin);
+  }
+  return layers;
+}
+
+function resolveLayerCollisions(layer, minGap, margin) {
+  if (!layer.length) return;
+  layer.sort((a, b) => {
+    const targetDiff = a.targetX - b.targetX;
+    if (targetDiff !== 0) return targetDiff;
+    return a.title.localeCompare(b.title, undefined, { numeric: true });
+  });
+  layer[0].x = Math.max(margin, layer[0].x);
+  for (let index = 1; index < layer.length; index += 1) {
+    layer[index].x = Math.max(layer[index].x, layer[index - 1].x + minGap);
+  }
+  for (let index = layer.length - 2; index >= 0; index -= 1) {
+    layer[index].x = Math.min(layer[index].x, layer[index + 1].x - minGap);
+  }
+  const shift = margin - Math.min(...layer.map((node) => node.x));
+  if (shift > 0) {
+    layer.forEach((node) => {
+      node.x += shift;
+    });
+  }
+}
+
+function extractDidTokens(rule, trunk) {
+  const tokens = new Set();
+  [rule?.match, rule?.name, rule?.condition, ...(trunk?.dids || [])].forEach((value) => {
+    tokenizeDidValue(value).forEach((token) => tokens.add(token));
+  });
+  return Array.from(tokens);
+}
+
+function tokenizeDidValue(value) {
+  if (!value) return [];
+  const raw = String(value)
+    .split(/[\s,;|/]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const tokens = new Set();
+  raw.forEach((part) => {
+    tokens.add(part);
+    const normalized = normalizePhoneLike(part);
+    if (normalized) tokens.add(normalized);
+  });
+  return Array.from(tokens);
+}
+
+function normalizePhoneLike(value) {
+  return String(value || "").replace(/[^0-9a-z]/gi, "").toLowerCase();
+}
+
+function normalizeSearchText(value) {
+  const text = String(value || "").toLowerCase();
+  return `${text} ${normalizePhoneLike(text)}`.trim();
+}
+
+function looksLikeDidQuery(query) {
+  const normalized = normalizePhoneLike(query);
+  return normalized.length >= 3 && /^[0-9+().\s-]+$/.test(query);
 }
 
 function groupByDepth(graph) {
