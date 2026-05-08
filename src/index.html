@@ -13,7 +13,7 @@
           <div class="brand-mark">3CX</div>
           <div>
             <h1>Call Routing Diagram Tool</h1>
-            <p>Upload a 3CX backup zip to map inbound, after-hours, and extension forwarding routes.</p>
+            <p>Upload a 3CX backup zip to map call flow per SIP trunk.</p>
           </div>
         </div>
 
@@ -38,16 +38,14 @@
       </aside>
 
       <section class="workspace">
-        <nav class="tabs" aria-label="Diagram pages">
-          <button class="tab is-active" type="button" data-page="inbound">Inbound Call Flow</button>
-          <button class="tab" type="button" data-page="after-hours">After-Hours Routing</button>
-          <button class="tab" type="button" data-page="extensions">Extension Forwarding</button>
+        <nav class="tabs" id="tabs" aria-label="Diagram pages">
+          <button class="tab is-active" type="button" data-page="all-trunks">All Trunks</button>
         </nav>
 
         <section class="toolbar">
           <div>
-            <h2 id="page-title">Inbound Call Flow</h2>
-            <p id="page-subtitle">Calls enter from trunks at the top and flow down to their configured destinations.</p>
+            <h2 id="page-title">All Trunks</h2>
+            <p id="page-subtitle">Calls enter from trunks at the top and flow down through office hours, after-hours, and holiday destinations.</p>
           </div>
           <div class="actions">
             <button id="fit-view" type="button">Fit</button>
