@@ -345,7 +345,7 @@ function renderSvg(graph) {
   const hGap = 42;
   const vGap = 96;
   const margin = 38;
-  const layers = groupByDepth(graph.nodes);
+  const layers = groupByDepth(graph);
   const maxLayer = Math.max(...layers.map((layer) => layer.length));
   const width = Math.max(900, margin * 2 + maxLayer * nodeWidth + (maxLayer - 1) * hGap);
   const height = Math.max(420, margin * 2 + layers.length * nodeHeight + (layers.length - 1) * vGap);
@@ -405,14 +405,73 @@ function renderSvg(graph) {
   });
 }
 
-function groupByDepth(nodes) {
+function groupByDepth(graph) {
+  const { nodes, edges } = graph;
   const maxDepth = Math.max(...nodes.map((node) => node.depth));
   const layers = Array.from({ length: maxDepth + 1 }, () => []);
-  nodes
+
+  const sortedNodes = nodes
     .slice()
-    .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }))
-    .forEach((node) => layers[node.depth].push(node));
+    .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
+  sortedNodes.forEach((node) => layers[node.depth].push(node));
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const parentsByNode = new Map(nodes.map((node) => [node.id, []]));
+  const childrenByNode = new Map(nodes.map((node) => [node.id, []]));
+
+  edges.forEach((edge) => {
+    const from = nodeById.get(edge.from);
+    const to = nodeById.get(edge.to);
+    if (!from || !to) return;
+    if (to.depth === from.depth + 1) {
+      parentsByNode.get(to.id).push(from.id);
+      childrenByNode.get(from.id).push(to.id);
+    } else if (from.depth === to.depth + 1) {
+      parentsByNode.get(from.id).push(to.id);
+      childrenByNode.get(to.id).push(from.id);
+    }
+  });
+
+  const maxIterations = 6;
+  for (let i = 0; i < maxIterations; i += 1) {
+    for (let depth = 1; depth < layers.length; depth += 1) {
+      reorderLayer(layers, depth, parentsByNode);
+    }
+    for (let depth = layers.length - 2; depth >= 0; depth -= 1) {
+      reorderLayer(layers, depth, childrenByNode);
+    }
+  }
+
   return layers.filter(Boolean);
+}
+
+function reorderLayer(layers, depth, relatedByNode) {
+  const orderInRefLayer = new Map();
+  layers.forEach((layer) => {
+    layer.forEach((node, index) => {
+      orderInRefLayer.set(node.id, index);
+    });
+  });
+
+  layers[depth].sort((a, b) => {
+    const scoreA = medianRank(relatedByNode.get(a.id), orderInRefLayer);
+    const scoreB = medianRank(relatedByNode.get(b.id), orderInRefLayer);
+    if (scoreA !== scoreB) return scoreA - scoreB;
+    return a.title.localeCompare(b.title, undefined, { numeric: true });
+  });
+}
+
+function medianRank(ids, orderLookup) {
+  if (!ids || !ids.length) return Number.POSITIVE_INFINITY;
+  const ranks = ids
+    .map((id) => orderLookup.get(id))
+    .filter((rank) => Number.isFinite(rank))
+    .sort((a, b) => a - b);
+
+  if (!ranks.length) return Number.POSITIVE_INFINITY;
+  const mid = Math.floor(ranks.length / 2);
+  if (ranks.length % 2) return ranks[mid];
+  return (ranks[mid - 1] + ranks[mid]) / 2;
 }
 
 function appendWrappedText(group, value, x, y, maxChars, className) {
