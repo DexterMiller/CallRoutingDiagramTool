@@ -12,23 +12,8 @@ const details = document.querySelector("#details");
 const pageTitle = document.querySelector("#page-title");
 const pageSubtitle = document.querySelector("#page-subtitle");
 
-const pageMeta = {
-  inbound: {
-    title: "Inbound Call Flow",
-    subtitle: "Calls enter from trunks at the top and flow down to their configured destinations.",
-  },
-  "after-hours": {
-    title: "After-Hours Routing",
-    subtitle: "Out-of-office and holiday paths from trunks and IVRs, including fallbacks.",
-  },
-  extensions: {
-    title: "Extension Forwarding",
-    subtitle: "Extension profile forwarding for no answer, busy, not registered, away, and out-of-office states.",
-  },
-};
-
 let currentSystem = null;
-let currentPage = "inbound";
+let currentPage = "all-trunks";
 
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
@@ -43,6 +28,7 @@ fileInput.addEventListener("change", async () => {
     emptyState.classList.add("is-hidden");
     diagramPanel.classList.remove("is-hidden");
     setStatus(`Loaded ${file.name} from ${currentSystem.sourceEntry}.`);
+    buildTrunkTabs(currentSystem);
     render();
   } catch (error) {
     console.error(error);
@@ -56,14 +42,15 @@ fileInput.addEventListener("change", async () => {
 
 searchInput.addEventListener("input", () => render());
 
-document.querySelectorAll(".tab").forEach((button) => {
-  button.addEventListener("click", () => {
-    currentPage = button.dataset.page;
-    document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("is-active", tab === button));
-    pageTitle.textContent = pageMeta[currentPage].title;
-    pageSubtitle.textContent = pageMeta[currentPage].subtitle;
-    render();
-  });
+const tabsEl = document.querySelector("#tabs");
+
+tabsEl.addEventListener("click", (event) => {
+  const button = event.target.closest(".tab");
+  if (!button) return;
+  currentPage = button.dataset.page;
+  setActiveTab(button);
+  updatePageHeader();
+  render();
 });
 
 document.querySelector("#fit-view").addEventListener("click", () => {
@@ -93,15 +80,16 @@ function render() {
 }
 
 function buildGraph(system, page) {
-  if (page === "after-hours") return buildAfterHoursGraph(system);
-  if (page === "extensions") return buildExtensionGraph(system);
-  return buildInboundGraph(system);
+  const trunkNumber = page === "all-trunks" ? null : page.replace("trunk:", "");
+  return buildTrunkGraph(system, trunkNumber);
 }
 
-function buildInboundGraph(system) {
+function buildTrunkGraph(system, selectedTrunkNumber = null) {
   const graph = createGraph(system);
 
-  system.trunks.forEach((trunk, trunkIndex) => {
+  system.trunks
+    .filter((trunk, trunkIndex) => !selectedTrunkNumber || String(trunk.number || trunkIndex + 1) === selectedTrunkNumber)
+    .forEach((trunk, trunkIndex) => {
     const trunkId = addNode(graph, {
       key: `trunk:${trunk.number || trunkIndex}`,
       kind: "Trunk",
@@ -128,100 +116,8 @@ function buildInboundGraph(system) {
       });
       addEdge(graph, trunkId, ruleId, "DID");
       expandDestination(graph, rule.office, ruleId, 2, "Office hours");
-    });
-  });
-
-  return graph;
-}
-
-function buildAfterHoursGraph(system) {
-  const graph = createGraph(system);
-
-  system.trunks.forEach((trunk, trunkIndex) => {
-    const trunkId = addNode(graph, {
-      key: `trunk-ah:${trunk.number || trunkIndex}`,
-      kind: "Trunk",
-      title: trunk.name || `Trunk ${trunk.number || trunkIndex + 1}`,
-      sub: [trunk.number && `Trunk ${trunk.number}`, "After-hours entry"].filter(Boolean).join(" | "),
-      depth: 0,
-      search: [trunk.name, trunk.number, ...trunk.dids].join(" "),
-    });
-
-    trunk.rules.forEach((rule, ruleIndex) => {
-      const ruleId = addNode(graph, {
-        key: `did-ah:${trunk.number}:${ruleIndex}`,
-        kind: "DID",
-        title: rule.match || rule.name || "Any DID",
-        sub: rule.name || "DID rule",
-        depth: 1,
-        search: [rule.name, rule.match, rule.condition].join(" "),
-      });
-      addEdge(graph, trunkId, ruleId, "DID");
-      expandDestination(graph, rule.outOfHours, ruleId, 2, "Out of office");
+      expandDestination(graph, rule.outOfHours, ruleId, 2, "After-hours");
       expandDestination(graph, rule.holidays, ruleId, 2, "Holiday");
-    });
-  });
-
-  Object.values(system.ivrs).forEach((ivr) => {
-    if (!ivr.outOfHoursRoute && !ivr.holidaysRoute) return;
-    const ivrId = addNode(graph, {
-      key: `ivr-ah-root:${ivr.number}`,
-      kind: "IVR",
-      title: `IVR ${ivr.number}`,
-      sub: ivr.name || "Digital receptionist",
-      depth: 0,
-      search: [ivr.number, ivr.name, ivr.prompt].join(" "),
-    });
-    expandDestination(graph, ivr.outOfHoursRoute, ivrId, 1, "Out of office");
-    expandDestination(graph, ivr.holidaysRoute, ivrId, 1, "Holiday");
-  });
-
-  return graph;
-}
-
-function buildExtensionGraph(system) {
-  const graph = createGraph(system);
-
-  Object.values(system.extensions).forEach((extension) => {
-    const relevantProfiles = extension.profiles.filter((profile) => profile.routes.length);
-    if (!relevantProfiles.length) return;
-
-    const extId = addNode(graph, {
-      key: `ext-root:${extension.number}`,
-      kind: "Extension",
-      title: `Ext ${extension.number}`,
-      sub: displayExtension(extension),
-      depth: 0,
-      search: [extension.number, displayExtension(extension), extension.email, extension.currentProfile].join(" "),
-    });
-
-    relevantProfiles.forEach((profile, profileIndex) => {
-      const profileId = addNode(graph, {
-        key: `profile:${extension.number}:${profileIndex}`,
-        kind: "Profile",
-        title: profile.name || `Profile ${profileIndex + 1}`,
-        sub: [
-          profile.noAnswerTimeout && `${profile.noAnswerTimeout}s no answer`,
-          profile.ringMyMobile && "rings mobile",
-          profile.disableRingGroupCalls && "skips ring groups",
-        ].filter(Boolean).join(" | "),
-        depth: 1,
-        search: [profile.name, profile.noAnswerTimeout].join(" "),
-      });
-      addEdge(graph, extId, profileId, extension.currentProfile === profile.name ? "Current" : "Profile");
-
-      profile.routes.forEach((route, routeIndex) => {
-        const stateId = addNode(graph, {
-          key: `state:${extension.number}:${profileIndex}:${routeIndex}`,
-          kind: "State",
-          title: route.state,
-          sub: route.audience,
-          depth: 2,
-          search: [route.state, route.audience].join(" "),
-        });
-        addEdge(graph, profileId, stateId, "Route");
-        expandDestination(graph, route.destination, stateId, 3, "Forward to");
-      });
     });
   });
 
@@ -508,27 +404,19 @@ function renderDetails(system, page, graph, query) {
     system.version ? `3CX version: ${system.version}` : "",
   ].filter(Boolean)));
 
-  if (page === "inbound") {
-    details.append(detailCard("Inbound Summary", [
-      `${system.trunks.length} trunks`,
-      `${system.trunks.reduce((sum, trunk) => sum + trunk.rules.length, 0)} DID rules`,
-      `${Object.keys(system.ivrs).length} IVRs`,
-      `${Object.keys(system.ringGroups).length} ring groups`,
-      `${Object.keys(system.queues).length} queues`,
-    ]));
-  } else if (page === "after-hours") {
-    const afterHoursRules = system.trunks.flatMap((trunk) => trunk.rules).filter((rule) => rule.outOfHours || rule.holidays);
-    details.append(detailCard("After-Hours Summary", [
-      `${afterHoursRules.length} trunk rules with after-hours or holiday destinations`,
-      `${Object.values(system.ivrs).filter((ivr) => ivr.outOfHoursRoute || ivr.holidaysRoute).length} IVRs with alternate routes`,
-    ]));
-  } else {
-    const profiles = Object.values(system.extensions).reduce((sum, ext) => sum + ext.profiles.filter((profile) => profile.routes.length).length, 0);
-    details.append(detailCard("Forwarding Summary", [
-      `${Object.keys(system.extensions).length} extensions`,
-      `${profiles} forwarding profiles with configured routes`,
-    ]));
-  }
+  const selectedTrunk = getSelectedTrunk(system, page);
+  const scopedTrunks = selectedTrunk ? [selectedTrunk] : system.trunks;
+  const scopedRules = scopedTrunks.flatMap((trunk) => trunk.rules);
+  const afterHoursRules = scopedRules.filter((rule) => rule.outOfHours || rule.holidays);
+
+  details.append(detailCard(selectedTrunk ? "Trunk Summary" : "All Trunks Summary", [
+    `${scopedTrunks.length} trunk${scopedTrunks.length === 1 ? "" : "s"} shown`,
+    `${scopedRules.length} DID rules`,
+    `${afterHoursRules.length} rules with after-hours or holiday destinations`,
+    `${Object.keys(system.ivrs).length} IVRs`,
+    `${Object.keys(system.ringGroups).length} ring groups`,
+    `${Object.keys(system.queues).length} queues`,
+  ]));
 }
 
 function detailCard(title, lines) {
@@ -548,7 +436,63 @@ function detailCard(title, lines) {
 
 function statusForGraph(system, graph, query) {
   if (query) return `Filter active: ${graph.nodes.length} nodes match or connect to "${query}".`;
-  return `Showing ${pageMeta[currentPage].title.toLowerCase()} for ${Object.keys(system.extensions).length} extensions.`;
+  const selectedTrunk = getSelectedTrunk(system, currentPage);
+  if (selectedTrunk) {
+    return `Showing call flow for trunk ${selectedTrunk.number || selectedTrunk.name || "(unnumbered)"}.`;
+  }
+  return `Showing call flow across ${system.trunks.length} trunks.`;
+}
+
+
+function buildTrunkTabs(system) {
+  tabsEl.replaceChildren();
+
+  const allButton = createTab("all-trunks", "All Trunks", currentPage === "all-trunks");
+  tabsEl.append(allButton);
+
+  system.trunks.forEach((trunk, index) => {
+    const number = String(trunk.number || index + 1);
+    const label = trunk.name ? `${trunk.name} (${number})` : `Trunk ${number}`;
+    tabsEl.append(createTab(`trunk:${number}`, label, currentPage === `trunk:${number}`));
+  });
+
+  const exists = tabsEl.querySelector(`[data-page="${currentPage}"]`);
+  if (!exists) currentPage = "all-trunks";
+  updatePageHeader();
+  setActiveTab(tabsEl.querySelector(`[data-page="${currentPage}"]`));
+}
+
+function createTab(page, label, active = false) {
+  const button = document.createElement("button");
+  button.className = `tab${active ? " is-active" : ""}`;
+  button.type = "button";
+  button.dataset.page = page;
+  button.textContent = label;
+  return button;
+}
+
+function setActiveTab(activeButton) {
+  tabsEl.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("is-active", tab === activeButton));
+}
+
+function getSelectedTrunk(system, page) {
+  if (!page || page === "all-trunks") return null;
+  const trunkNumber = page.replace("trunk:", "");
+  return system.trunks.find((trunk, index) => String(trunk.number || index + 1) === trunkNumber) || null;
+}
+
+function updatePageHeader() {
+  if (!currentSystem) return;
+  const selectedTrunk = getSelectedTrunk(currentSystem, currentPage);
+  if (!selectedTrunk) {
+    pageTitle.textContent = "All Trunks";
+    pageSubtitle.textContent = "Calls enter from trunks at the top and flow down through office hours, after-hours, and holiday destinations.";
+    return;
+  }
+
+  const trunkLabel = selectedTrunk.name || `Trunk ${selectedTrunk.number || "(unnumbered)"}`;
+  pageTitle.textContent = trunkLabel;
+  pageSubtitle.textContent = `Call flow for SIP trunk ${selectedTrunk.number || trunkLabel}, including office hours, after-hours, and holiday routing.`;
 }
 
 function updateStats(system) {
