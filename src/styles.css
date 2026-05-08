@@ -220,6 +220,26 @@ button:hover {
   font-weight: 700;
 }
 
+.subtabs {
+  display: flex;
+  gap: 8px;
+  padding: 10px 18px 0;
+  background: var(--panel);
+}
+
+.subtab {
+  padding: 7px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+}
+
+.subtab.is-active {
+  background: #e8f2fb;
+  border-color: #a7c4de;
+  color: var(--blue);
+  font-weight: 700;
+}
+
 .toolbar {
   display: flex;
   justify-content: space-between;
