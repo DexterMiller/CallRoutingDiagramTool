@@ -216,6 +216,8 @@ function expandDestination(graph, destination, fromId, depth, label) {
     });
     expandDestination(graph, ivr.officeRoute, nodeId, depth + 1, "Office route");
     expandDestination(graph, ivr.outOfHoursRoute, nodeId, depth + 1, "After-hours");
+    expandDestination(graph, ivr.breakRoute, nodeId, depth + 1, "Break route");
+    expandDestination(graph, ivr.holidaysRoute, nodeId, depth + 1, "Holiday route");
   } else if (dest.kind === "RingGroup" && system.ringGroups[dest.dn]) {
     const rg = system.ringGroups[dest.dn];
     expandDestination(graph, rg.noAnswer, nodeId, depth + 1, "No answer");
