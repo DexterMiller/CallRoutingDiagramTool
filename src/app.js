@@ -122,7 +122,7 @@ function buildTrunkGraph(system, selectedTrunkNumber = null, selectedHoursMode =
       title: trunk.name || `Trunk ${trunk.number || trunkIndex + 1}`,
       sub: [trunk.number && `Trunk ${trunk.number}`, trunk.direction].filter(Boolean).join(" | "),
       depth: 0,
-      search: [trunk.name, trunk.number, trunk.direction, ...trunk.dids].join(" "),
+      search: [trunk.name, trunk.number, trunk.direction].join(" "),
     });
 
     const rules = trunk.rules.length ? trunk.rules : [{
@@ -309,8 +309,11 @@ function filterGraph(graph, query) {
 
   const keep = new Set();
 
-  allNodes.forEach((node) => {
-    if (!node.search.includes(query)) return;
+  const matchingNodes = allNodes.filter((node) => node.search.includes(query));
+  const didExactMatches = matchingNodes.filter((node) => node.kind === "DID" && matchesDidQuery(node, query));
+  const seedNodes = didExactMatches.length ? didExactMatches : matchingNodes;
+
+  seedNodes.forEach((node) => {
     keep.add(node.id);
     collectAncestors(node.id, incoming, keep);
     collectDescendants(node.id, outgoing, keep);
@@ -338,6 +341,14 @@ function collectDescendants(id, outgoing, keep) {
     keep.add(childId);
     collectDescendants(childId, outgoing, keep);
   });
+}
+
+function matchesDidQuery(node, query) {
+  const text = `${node.title} ${node.sub}`.toLowerCase();
+  const compactText = text.replace(/[^a-z0-9*]/g, "");
+  const compactQuery = query.toLowerCase().replace(/[^a-z0-9*]/g, "");
+  if (!compactQuery) return false;
+  return compactText.includes(compactQuery);
 }
 
 function renderSvg(graph) {
