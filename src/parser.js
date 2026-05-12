@@ -130,6 +130,7 @@ function parseSystem(xml, sourceEntry) {
         prompt: text(child, "PromptFilename"),
         timeout: text(child, "Timeout"),
         timeoutForwardType: text(child, "TimeoutForwardType"),
+        timeoutDestination: destinationFromTypeAndDn(text(child, "TimeoutForwardType"), text(child, "TimeoutForwardDN")),
         officeRoute: parseRouteString(text(child, "OfficeHoursRoute")),
         outOfHoursRoute: parseRouteString(text(child, "OutOfOfficeHoursRoute")),
         breakRoute: parseRouteString(text(child, "BreakTimeRoute")),
@@ -246,7 +247,11 @@ function parseForwardingProfiles(extension) {
 
 function parseForwardTypeDestination(el) {
   if (!el) return null;
-  return destinationFromTypeAndDn(text(el, "ForwardType"), text(el, "ForwardDN"));
+  return destinationFromTypeAndDn(
+    text(el, "ForwardType") || text(el, "To"),
+    text(el, "ForwardDN") || first(el, "Internal")?.getAttribute("DN") || "",
+    text(el, "External"),
+  );
 }
 
 function parseDestinationElement(el) {
@@ -267,9 +272,10 @@ function parseRouteString(raw) {
   return { kind, dn, external: "", raw };
 }
 
-function destinationFromTypeAndDn(kind, dn) {
+function destinationFromTypeAndDn(kind, dn, external = "") {
   if (!kind) return null;
-  return { kind, dn: dn || "", external: "" };
+  if (kind === "None") return { kind: "None", dn: "", external: "" };
+  return { kind, dn: dn || "", external: external || "" };
 }
 
 function firstWithFallback(el, tagNames) {
