@@ -23,12 +23,12 @@
           <span id="file-name" class="drop-sub">No file selected</span>
         </label>
 
-        <div class="field">
+        <div class="field app-ready-only">
           <label for="search">Filter routes</label>
           <input id="search" type="search" placeholder="DID, extension, name, destination">
         </div>
 
-        <section class="stats" aria-live="polite">
+        <section class="stats app-ready-only" aria-live="polite">
           <div><strong id="stat-trunks">0</strong><span>Trunks</span></div>
           <div><strong id="stat-rules">0</strong><span>DID rules</span></div>
           <div><strong id="stat-ext">0</strong><span>Extensions</span></div>
@@ -38,18 +38,23 @@
       </aside>
 
       <section class="workspace">
-        <nav class="tabs" id="tabs" aria-label="Diagram pages">
+        <section id="welcome-card" class="welcome-card">
+          <h2>Start by uploading a 3CX backup ZIP</h2>
+          <p>Use the upload panel on the left to pick your 3CX backup file. Once loaded, this page will show trunk tabs, hour filters, diagram controls, and detailed call routing.</p>
+        </section>
+
+        <nav class="tabs app-ready-only" id="tabs" aria-label="Diagram pages">
           <button class="tab is-active" type="button" data-page="all-trunks">All Trunks</button>
         </nav>
 
-        <nav class="subtabs" id="hours-tabs" aria-label="Hour type filters">
+        <nav class="subtabs app-ready-only" id="hours-tabs" aria-label="Hour type filters">
           <button class="subtab is-active" type="button" data-hours="all">All Hours</button>
           <button class="subtab" type="button" data-hours="office">Office Hours</button>
           <button class="subtab" type="button" data-hours="after">After-Hours</button>
           <button class="subtab" type="button" data-hours="holiday">Holiday</button>
         </nav>
 
-        <section class="toolbar">
+        <section class="toolbar app-ready-only">
           <div>
             <h2 id="page-title">All Trunks</h2>
             <p id="page-subtitle">Calls enter from trunks at the top and flow down through office hours, after-hours, and holiday destinations.</p>
