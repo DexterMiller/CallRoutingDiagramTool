@@ -193,7 +193,36 @@ button:hover {
 .workspace {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
+.app-ready-only {
+  display: none !important;
+}
+
+body.app-ready .app-ready-only {
+  display: flex !important;
+}
+
+body.app-ready .field.app-ready-only {
+  display: grid !important;
+}
+
+body.app-ready .stats.app-ready-only {
+  display: grid !important;
+}
+
+body.app-ready .toolbar.app-ready-only {
+  display: flex !important;
+}
+
+.welcome-card {
+  margin: 18px;
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
 }
 
 .tabs {

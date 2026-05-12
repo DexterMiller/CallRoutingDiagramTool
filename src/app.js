@@ -11,6 +11,7 @@ const svg = document.querySelector("#diagram");
 const details = document.querySelector("#details");
 const pageTitle = document.querySelector("#page-title");
 const pageSubtitle = document.querySelector("#page-subtitle");
+const welcomeCard = document.querySelector("#welcome-card");
 
 let currentSystem = null;
 let currentPage = "all-trunks";
@@ -27,18 +28,22 @@ fileInput.addEventListener("change", async () => {
 
   try {
     currentSystem = await parseBackupFile(file);
+    setAppReady(true);
     updateStats(currentSystem);
     emptyState.classList.add("is-hidden");
     diagramPanel.classList.remove("is-hidden");
+    welcomeCard.classList.add("is-hidden");
     setStatus(`Loaded ${file.name} from ${currentSystem.sourceEntry}.`);
     buildTrunkTabs(currentSystem);
     render();
   } catch (error) {
     console.error(error);
     currentSystem = null;
+    setAppReady(false);
     updateStats(null);
     emptyState.classList.remove("is-hidden");
     diagramPanel.classList.add("is-hidden");
+    welcomeCard.classList.remove("is-hidden");
     setStatus(error.message || "Could not read this backup.");
   }
 });
@@ -82,6 +87,10 @@ document.querySelector("#export-html").addEventListener("click", () => {
   a.click();
   URL.revokeObjectURL(url);
 });
+
+function setAppReady(isReady) {
+  document.body.classList.toggle("app-ready", isReady);
+}
 
 function render() {
   if (!currentSystem) return;
