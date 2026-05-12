@@ -1,5 +1,5 @@
 import { parseBackupFile } from "./parser.js";
-import dagre from "https://cdn.jsdelivr.net/npm/dagre@0.8.5/+esm";
+const dagre = globalThis.dagre;
 
 const fileInput = document.querySelector("#backup-file");
 const fileName = document.querySelector("#file-name");
@@ -399,6 +399,12 @@ function renderSvg(graph) {
   if (!graph.nodes.length) {
     svg.setAttribute("viewBox", "0 0 900 260");
     svg.innerHTML = `<text x="40" y="70" fill="#66717d" font-size="18">No routes match the current filter.</text>`;
+    return;
+  }
+
+  if (!dagre?.graphlib?.Graph) {
+    svg.setAttribute("viewBox", "0 0 900 260");
+    svg.innerHTML = `<text x="40" y="70" fill="#a0422a" font-size="16">Layout engine unavailable. Reload and try again.</text>`;
     return;
   }
 
