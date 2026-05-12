@@ -400,6 +400,25 @@ svg {
   fill: #f7f8f9;
 }
 
+.kind-summary .node-card {
+  stroke: #64748b;
+  fill: #f8fafc;
+  stroke-dasharray: 4 3;
+}
+
+.expand-dot {
+  fill: #e2e8f0;
+  stroke: #64748b;
+  cursor: pointer;
+}
+
+.expand-glyph {
+  fill: #334155;
+  font-size: 14px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
 .details {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

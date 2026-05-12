@@ -1,4 +1,5 @@
 import { parseBackupFile } from "./parser.js";
+const dagre = globalThis.dagre;
 
 const fileInput = document.querySelector("#backup-file");
 const fileName = document.querySelector("#file-name");
@@ -18,6 +19,7 @@ let currentPage = "all-trunks";
 let lastRenderedGraph = null;
 let lastQuery = "";
 let hoursMode = "all";
+const expansionState = new Set();
 
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
@@ -73,6 +75,15 @@ hoursTabsEl.addEventListener("click", (event) => {
 
 document.querySelector("#fit-view").addEventListener("click", () => {
   diagramWrap.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+});
+document.querySelector("#expand-all").addEventListener("click", () => {
+  if (!currentSystem) return;
+  expandAllExpansibleNodes(currentSystem, expansionState);
+  render();
+});
+document.querySelector("#collapse-all").addEventListener("click", () => {
+  expansionState.clear();
+  render();
 });
 
 document.querySelector("#export-html").addEventListener("click", () => {
@@ -219,13 +230,37 @@ function expandDestination(graph, destination, fromId, depth, label) {
     expandDestination(graph, ivr.outOfHoursRoute, nodeId, depth + 1, "After-hours");
     expandDestination(graph, ivr.breakRoute, nodeId, depth + 1, "Break route");
     expandDestination(graph, ivr.holidaysRoute, nodeId, depth + 1, "Holiday route");
-  } else if (dest.kind === "RingGroup" && system.ringGroups[dest.dn]) {
+  } else if (dest.kind === "RingGroup" && system.ringGroups[dest.dn] && isExpanded(expansionKey)) {
     const rg = system.ringGroups[dest.dn];
     expandDestination(graph, rg.noAnswer, nodeId, depth + 1, "No answer");
+    addMemberSummaryNode(graph, nodeId, depth + 1, "Member", rg.members || [], `ring-members:${dest.dn}`);
   } else if (dest.kind === "Queue" && system.queues[dest.dn]) {
     const queue = system.queues[dest.dn];
-    expandDestination(graph, queue.timeoutDestination, nodeId, depth + 1, "Timeout");
+    if (isExpanded(expansionKey)) {
+      expandDestination(graph, queue.timeoutDestination, nodeId, depth + 1, queue.timeout ? `Timeout ${queue.timeout}s` : "Timeout");
+      addMemberSummaryNode(graph, nodeId, depth + 1, "Agent", queue.members || [], `queue-members:${dest.dn}`);
+    }
+  } else if (dest.kind === "IVR" && system.ivrs[dest.dn] && !isExpanded(expansionKey)) {
+    const ivr = system.ivrs[dest.dn];
+    expandDestination(graph, ivr.timeoutDestination, nodeId, depth + 1, ivr.timeout ? `Timeout ${ivr.timeout}s` : "Timeout");
   }
+}
+
+function addMemberSummaryNode(graph, parentId, depth, labelPrefix, members, key) {
+  if (!members.length) return;
+  const summaryId = addNode(graph, {
+    key,
+    kind: "Summary",
+    title: `${members.length} ${labelPrefix.toLowerCase()}${members.length === 1 ? "" : "s"}`,
+    sub: "Expand to inspect full routes",
+    depth,
+    search: members.join(" "),
+  });
+  addEdge(graph, parentId, summaryId, labelPrefix);
+}
+
+function isExpanded(key) {
+  return expansionState.has(key);
 }
 
 function destinationNode(graph, destination, depth) {
@@ -321,6 +356,10 @@ function filterGraph(graph, query) {
     collectAncestors(node.id, incoming, keep);
     collectDescendants(node.id, outgoing, keep);
   });
+  seedNodes.forEach((node) => {
+    const [kind, dn] = node.key.split(":");
+    if (dn && ["ivr", "ringgroup", "queue", "did"].includes(kind)) expansionState.add(`${kind[0].toUpperCase()}${kind.slice(1)}:${dn}`);
+  });
 
   return {
     nodes: allNodes.filter((node) => keep.has(node.id)),
@@ -363,25 +402,27 @@ function renderSvg(graph) {
     return;
   }
 
-  const nodeWidth = 220;
-  const nodeHeight = 74;
-  const hGap = 42;
-  const vGap = 96;
-  const margin = 38;
-  const layers = groupByDepth(graph);
-  const maxLayer = Math.max(...layers.map((layer) => layer.length));
-  const width = Math.max(900, margin * 2 + maxLayer * nodeWidth + (maxLayer - 1) * hGap);
-  const height = Math.max(420, margin * 2 + layers.length * nodeHeight + (layers.length - 1) * vGap);
-  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  if (!dagre?.graphlib?.Graph) {
+    svg.setAttribute("viewBox", "0 0 900 260");
+    svg.innerHTML = `<text x="40" y="70" fill="#a0422a" font-size="16">Layout engine unavailable. Reload and try again.</text>`;
+    return;
+  }
 
-  layers.forEach((layer, depth) => {
-    const layerWidth = layer.length * nodeWidth + Math.max(0, layer.length - 1) * hGap;
-    const startX = (width - layerWidth) / 2;
-    layer.forEach((node, index) => {
-      node.x = startX + index * (nodeWidth + hGap);
-      node.y = margin + depth * (nodeHeight + vGap);
-    });
+  const nodeWidth = 240;
+  const nodeHeight = 84;
+  const margin = 40;
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  const layout = new dagre.graphlib.Graph({ multigraph: true }).setGraph({ rankdir: "TB", nodesep: 55, ranksep: 110, marginx: margin, marginy: margin }).setDefaultEdgeLabel(() => ({}));
+  graph.nodes.forEach((node) => layout.setNode(node.id, { width: nodeWidth, height: nodeHeight }));
+  graph.edges.forEach((edge, idx) => layout.setEdge(edge.from, edge.to, { label: edge.label, id: idx }));
+  dagre.layout(layout);
+  graph.nodes.forEach((node) => {
+    const p = layout.node(node.id);
+    node.x = p.x - nodeWidth / 2;
+    node.y = p.y - nodeHeight / 2;
   });
+  const width = Math.max(900, layout.graph().width + margin * 2);
+  const height = Math.max(420, layout.graph().height + margin * 2);
 
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("width", width);
@@ -424,8 +465,30 @@ function renderSvg(graph) {
     group.append(el("rect", { class: "node-card", width: nodeWidth, height: nodeHeight, rx: 8 }));
     appendWrappedText(group, node.title, 14, 24, 25, "node-title");
     appendWrappedText(group, node.sub, 14, 50, 29, "node-sub");
+    if (isExpandableNode(node)) {
+      const expanded = isExpanded(node.key.replace(/^did/, "DID").replace(/^ivr/, "IVR").replace(/^ringgroup/, "RingGroup").replace(/^queue/, "Queue"));
+      const affordance = el("circle", { class: "expand-dot", cx: nodeWidth - 14, cy: 14, r: 9 });
+      affordance.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const stateKey = node.key.replace(/^did/, "DID").replace(/^ivr/, "IVR").replace(/^ringgroup/, "RingGroup").replace(/^queue/, "Queue");
+        if (expansionState.has(stateKey)) expansionState.delete(stateKey);
+        else expansionState.add(stateKey);
+        render();
+      });
+      group.append(affordance, el("text", { class: "expand-glyph", x: nodeWidth - 14, y: 18, "text-anchor": "middle" }, expanded ? "−" : "+"));
+    }
     nodeLayer.append(group);
   });
+}
+
+function isExpandableNode(node) {
+  return ["IVR", "RingGroup", "Queue", "DID"].includes(node.kind);
+}
+
+function expandAllExpansibleNodes(system, target) {
+  Object.keys(system.ivrs).forEach((dn) => target.add(`IVR:${dn}`));
+  Object.keys(system.ringGroups).forEach((dn) => target.add(`RingGroup:${dn}`));
+  Object.keys(system.queues).forEach((dn) => target.add(`Queue:${dn}`));
 }
 
 function groupByDepth(graph) {
