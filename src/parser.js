@@ -147,7 +147,7 @@ function parseSystem(xml, sourceEntry) {
         strategy: text(child, "RingStrategy"),
         ringTime: text(child, "RingTime"),
         members: children(first(child, "Members"), "Member").map((m) => m.getAttribute("DN")).filter(Boolean),
-        noAnswer: parseForwardTypeDestination(first(child, "Destination")),
+        noAnswer: parseForwardTypeDestination(firstWithFallback(child, ["NoAnswerDestination", "Destination", "NoAnswerRoute"])),
       };
     } else if (child.tagName === "Queue") {
       const number = text(child, "Number");
@@ -160,7 +160,7 @@ function parseSystem(xml, sourceEntry) {
         introFile: text(child, "IntroFile"),
         onHoldFile: text(child, "OnHoldFile"),
         members: children(first(child, "Members"), "Member").map((m) => m.getAttribute("DN")).filter(Boolean),
-        timeoutDestination: parseForwardTypeDestination(first(child, "Destination")),
+        timeoutDestination: parseForwardTypeDestination(firstWithFallback(child, ["TimeoutDestination", "Destination", "NoAnswerDestination"])),
       };
     } else if (child.tagName === "RoutePoint") {
       system.routePoints[text(child, "Number")] = text(child, "Name");
@@ -270,6 +270,14 @@ function parseRouteString(raw) {
 function destinationFromTypeAndDn(kind, dn) {
   if (!kind) return null;
   return { kind, dn: dn || "", external: "" };
+}
+
+function firstWithFallback(el, tagNames) {
+  for (const tagName of tagNames) {
+    const match = first(el, tagName);
+    if (match) return match;
+  }
+  return null;
 }
 
 function first(el, tagName) {
