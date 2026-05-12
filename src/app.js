@@ -201,7 +201,7 @@ function expandDestination(graph, destination, fromId, depth, label) {
   const dest = normalizeDestination(destination);
   if (!dest || !dest.dn) return;
 
-  const expansionKey = `${dest.kind}:${dest.dn}:${depth}`;
+  const expansionKey = `${dest.kind}:${dest.dn || dest.external || dest.raw || ""}`;
   if (graph.expanded.has(expansionKey)) return;
   graph.expanded.add(expansionKey);
 
@@ -214,6 +214,7 @@ function expandDestination(graph, destination, fromId, depth, label) {
       if (optionDest?.kind === "Extension") return;
       expandDestination(graph, option.destination, nodeId, depth + 1, option.digit ? `Press ${option.digit}` : "Menu");
     });
+    expandDestination(graph, ivr.timeoutDestination, nodeId, depth + 1, ivr.timeout ? `Timeout ${ivr.timeout}s` : "Timeout");
     expandDestination(graph, ivr.officeRoute, nodeId, depth + 1, "Office route");
     expandDestination(graph, ivr.outOfHoursRoute, nodeId, depth + 1, "After-hours");
     expandDestination(graph, ivr.breakRoute, nodeId, depth + 1, "Break route");
