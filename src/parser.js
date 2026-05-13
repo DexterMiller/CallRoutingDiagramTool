@@ -4,11 +4,11 @@ export async function parseBackupFile(file) {
   const buffer = await file.arrayBuffer();
   const entries = readZipEntries(buffer);
   const dbEntry = entries
-    .filter((entry) => /Db\.xml$/i.test(entry.name) && !entry.name.includes("/"))
+    .filter((entry) => /Db\.xml$/i.test(entry.name))
     .sort((a, b) => b.uncompressedSize - a.uncompressedSize)[0];
 
   if (!dbEntry) {
-    throw new Error("No root database XML ending in Db.xml was found in this backup.");
+    throw new Error("No database XML ending in Db.xml was found in this backup.");
   }
 
   const xmlText = await readEntryText(buffer, dbEntry);
@@ -28,8 +28,13 @@ function readZipEntries(buffer) {
     throw new Error("The selected file is not a readable zip archive.");
   }
 
-  const totalEntries = view.getUint16(eocdOffset + 10, true);
-  const centralOffset = view.getUint32(eocdOffset + 16, true);
+  let totalEntries = view.getUint16(eocdOffset + 10, true);
+  let centralOffset = view.getUint32(eocdOffset + 16, true);
+  if (totalEntries === 0xffff || centralOffset === 0xffffffff) {
+    const zip64 = findZip64CentralDirectory(view, eocdOffset);
+    totalEntries = zip64.totalEntries;
+    centralOffset = zip64.centralOffset;
+  }
   const entries = [];
   let offset = centralOffset;
 
@@ -40,16 +45,24 @@ function readZipEntries(buffer) {
 
     const flags = view.getUint16(offset + 8, true);
     const method = view.getUint16(offset + 10, true);
-    const compressedSize = view.getUint32(offset + 20, true);
-    const uncompressedSize = view.getUint32(offset + 24, true);
+    let compressedSize = view.getUint32(offset + 20, true);
+    let uncompressedSize = view.getUint32(offset + 24, true);
     const nameLength = view.getUint16(offset + 28, true);
     const extraLength = view.getUint16(offset + 30, true);
     const commentLength = view.getUint16(offset + 32, true);
-    const localHeaderOffset = view.getUint32(offset + 42, true);
+    let localHeaderOffset = view.getUint32(offset + 42, true);
     const nameBytes = new Uint8Array(buffer, offset + 46, nameLength);
     const name = new TextDecoder(flags & 0x0800 ? "utf-8" : "utf-8").decode(nameBytes);
+    const extraOffset = offset + 46 + nameLength;
+    if (compressedSize === 0xffffffff || uncompressedSize === 0xffffffff || localHeaderOffset === 0xffffffff) {
+      const zip64Values = parseZip64Extra(view, extraOffset, extraLength);
+      let cursor = 0;
+      if (uncompressedSize === 0xffffffff) uncompressedSize = Number(zip64Values[cursor++]);
+      if (compressedSize === 0xffffffff) compressedSize = Number(zip64Values[cursor++]);
+      if (localHeaderOffset === 0xffffffff) localHeaderOffset = Number(zip64Values[cursor++]);
+    }
 
-    entries.push({ name, method, compressedSize, uncompressedSize, localHeaderOffset });
+    entries.push({ name, method, flags, compressedSize, uncompressedSize, localHeaderOffset });
     offset += 46 + nameLength + extraLength + commentLength;
   }
 
@@ -67,6 +80,9 @@ function findEndOfCentralDirectory(view) {
 }
 
 async function readEntryText(buffer, entry) {
+  if (entry.flags & 0x0001) {
+    throw new Error(`Encrypted zip entries are unsupported (${entry.name}). Re-export without encryption.`);
+  }
   const view = new DataView(buffer);
   const offset = entry.localHeaderOffset;
   if (view.getUint32(offset, true) !== 0x04034b50) {
@@ -76,6 +92,9 @@ async function readEntryText(buffer, entry) {
   const nameLength = view.getUint16(offset + 26, true);
   const extraLength = view.getUint16(offset + 28, true);
   const dataStart = offset + 30 + nameLength + extraLength;
+  if ((entry.flags & 0x0008) && !entry.compressedSize) {
+    throw new Error(`Zip data-descriptor entry has no known compressed size (${entry.name}).`);
+  }
   const compressed = buffer.slice(dataStart, dataStart + entry.compressedSize);
 
   if (entry.method === 0) {
@@ -184,9 +203,19 @@ function parseSystem(xml, sourceEntry) {
       rules: [],
     };
 
-    for (const rule of children(first(child, "RoutingRules"), "ExternalLineRule")) {
+    const routingContainers = [
+      first(child, "RoutingRules"),
+      first(child, "ExternalLineRules"),
+      first(child, "InboundRules"),
+    ].filter(Boolean);
+    const rules = routingContainers.flatMap((container) => children(container, "ExternalLineRule"));
+    if (!rules.length) {
+      rules.push(...descendants(child, "ExternalLineRule"));
+    }
+
+    for (const rule of rules) {
       const condition = first(first(rule, "Conditions"), "Condition");
-      const destinations = first(rule, "ForwardDestinations");
+      const destinations = first(rule, "ForwardDestinations") || first(rule, "Destinations") || rule;
       trunk.rules.push({
         name: text(rule, "RuleName"),
         condition: condition?.getAttribute("Type") || "",
@@ -201,6 +230,47 @@ function parseSystem(xml, sourceEntry) {
   }
 
   return system;
+}
+
+function parseZip64Extra(view, offset, length) {
+  const end = offset + length;
+  let cursor = offset;
+  while (cursor + 4 <= end) {
+    const headerId = view.getUint16(cursor, true);
+    const dataSize = view.getUint16(cursor + 2, true);
+    const dataStart = cursor + 4;
+    const dataEnd = dataStart + dataSize;
+    if (dataEnd > end) break;
+    if (headerId === 0x0001) {
+      const values = [];
+      for (let p = dataStart; p + 8 <= dataEnd; p += 8) {
+        values.push(readUint64Le(view, p));
+      }
+      return values;
+    }
+    cursor = dataEnd;
+  }
+  throw new Error("ZIP64 entry is missing required extended information.");
+}
+
+function findZip64CentralDirectory(view, eocdOffset) {
+  const locatorOffset = eocdOffset - 20;
+  if (locatorOffset < 0 || view.getUint32(locatorOffset, true) !== 0x07064b50) {
+    throw new Error("ZIP64 locator was expected but not found.");
+  }
+  const zip64EocdOffset = Number(readUint64Le(view, locatorOffset + 8));
+  if (view.getUint32(zip64EocdOffset, true) !== 0x06064b50) {
+    throw new Error("ZIP64 end of central directory record is invalid.");
+  }
+  const totalEntries = Number(readUint64Le(view, zip64EocdOffset + 32));
+  const centralOffset = Number(readUint64Le(view, zip64EocdOffset + 48));
+  return { totalEntries, centralOffset };
+}
+
+function readUint64Le(view, offset) {
+  const low = BigInt(view.getUint32(offset, true));
+  const high = BigInt(view.getUint32(offset + 4, true));
+  return low + (high << 32n);
 }
 
 function parseForwardingProfiles(extension) {
