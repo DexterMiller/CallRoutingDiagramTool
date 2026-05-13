@@ -323,6 +323,9 @@ function parseForwardingProfiles(extension) {
 
 function parseForwardTypeDestination(el) {
   if (!el) return null;
+  const routeDestination = parseRouteString(text(el));
+  if (routeDestination) return routeDestination;
+
   return destinationFromTypeAndDn(
     text(el, "ForwardType") || text(el, "To"),
     text(el, "ForwardDN") || first(el, "Internal")?.getAttribute("DN") || "",
