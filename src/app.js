@@ -227,8 +227,6 @@ function expandDestination(graph, destination, fromId, depth, label) {
   if (dest.kind === "IVR" && system.ivrs[dest.dn] && isExpanded(expansionKey)) {
     const ivr = system.ivrs[dest.dn];
     ivr.options.forEach((option) => {
-      const optionDest = normalizeDestination(option.destination);
-      if (optionDest?.kind === "Extension") return;
       expandDestination(graph, option.destination, nodeId, depth + 1, option.digit ? `Press ${option.digit}` : "Menu");
     });
     expandDestination(graph, ivr.timeoutDestination, nodeId, depth + 1, ivr.timeout ? `Timeout ${ivr.timeout}s` : "Timeout");
@@ -784,7 +782,6 @@ function buildTreeExportHtml(system, graph, page, query) {
     if (!node) return "";
 
     const children = (outgoing.get(nodeId) || []).map((edge) => {
-      const target = byId.get(edge.to);
       const edgeLabel = edge.label ? `<span class=\"edge\">${escapeHtml(edge.label)}:</span> ` : "";
       return `<li>${edgeLabel}${renderNode(edge.to)}</li>`;
     }).join("");
