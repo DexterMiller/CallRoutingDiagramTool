@@ -20,6 +20,7 @@ let lastRenderedGraph = null;
 let lastQuery = "";
 let hoursMode = "all";
 const expansionState = new Set();
+let focusedDidNodeId = null;
 
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
@@ -494,6 +495,39 @@ function cycleDiagnostics(graph) {
   return cycles.sort((a, b) => a.join(" -> ").localeCompare(b.join(" -> ")));
 }
 
+
+function buildAdjacency(edges) {
+  const outgoing = new Map();
+  const incoming = new Map();
+  edges.forEach((edge) => {
+    if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
+    if (!incoming.has(edge.to)) incoming.set(edge.to, []);
+    outgoing.get(edge.from).push(edge.to);
+    incoming.get(edge.to).push(edge.from);
+  });
+  return { outgoing, incoming };
+}
+
+function collectConnectedPath(seedId, graph) {
+  if (!seedId) return new Set();
+  const { outgoing, incoming } = buildAdjacency(graph.edges);
+  const keep = new Set([seedId]);
+  collectAncestors(seedId, incoming, keep);
+  collectDescendants(seedId, outgoing, keep);
+  return keep;
+}
+
+function nodeSizing(node) {
+  const titleLines = wrap(node.title || "", 25).slice(0, 3);
+  const subtitleLines = wrap(node.sub || "", 29).slice(0, 3);
+  const titleCount = Math.max(1, titleLines.length);
+  const subCount = subtitleLines.filter(Boolean).length;
+  const titleH = titleCount * 15;
+  const subH = subCount ? subCount * 15 : 0;
+  const height = Math.max(84, 18 + titleH + (subH ? 9 + subH : 0) + 14);
+  return { width: 240, height, titleLines, subtitleLines };
+}
+
 function renderSvg(graph) {
   svg.replaceChildren();
 
@@ -509,18 +543,21 @@ function renderSvg(graph) {
     return;
   }
 
-  const nodeWidth = 240;
-  const nodeHeight = 84;
   const margin = 40;
+  const focusedPath = collectConnectedPath(focusedDidNodeId, graph);
+  const hasFocus = focusedPath.size > 0;
   const byId = new Map(graph.nodes.map((node) => [node.id, node]));
   const layout = new dagre.graphlib.Graph({ multigraph: true }).setGraph({ rankdir: "TB", nodesep: 55, ranksep: 110, marginx: margin, marginy: margin }).setDefaultEdgeLabel(() => ({}));
-  graph.nodes.forEach((node) => layout.setNode(node.id, { width: nodeWidth, height: nodeHeight }));
+  graph.nodes.forEach((node) => {
+    node.size = nodeSizing(node);
+    layout.setNode(node.id, { width: node.size.width, height: node.size.height });
+  });
   graph.edges.forEach((edge, idx) => layout.setEdge(edge.from, edge.to, { label: edge.label, id: idx }));
   dagre.layout(layout);
   graph.nodes.forEach((node) => {
     const p = layout.node(node.id);
-    node.x = p.x - nodeWidth / 2;
-    node.y = p.y - nodeHeight / 2;
+    node.x = p.x - node.size.width / 2;
+    node.y = p.y - node.size.height / 2;
   });
   const width = Math.max(900, layout.graph().width + margin * 2);
   const height = Math.max(420, layout.graph().height + margin * 2);
@@ -529,46 +566,69 @@ function renderSvg(graph) {
   svg.setAttribute("width", width);
   svg.setAttribute("height", height);
 
+  const laneLayer = el("g", { class: "lanes" });
   const edgeLayer = el("g", { class: "edges" });
   const nodeLayer = el("g", { class: "nodes" });
-  svg.append(edgeLayer, nodeLayer);
+  svg.append(laneLayer, edgeLayer, nodeLayer);
+
+  const depths = [...new Set(graph.nodes.map((node) => node.depth))].sort((a, b) => a - b);
+  const laneNames = { 0: "Trunks", 1: "DIDs", 2: "Destinations" };
+  depths.forEach((depth) => {
+    const laneNodes = graph.nodes.filter((node) => node.depth === depth);
+    if (!laneNodes.length) return;
+    const top = Math.min(...laneNodes.map((n) => n.y)) - 22;
+    const bottom = Math.max(...laneNodes.map((n) => n.y + n.size.height)) + 16;
+    laneLayer.append(el("rect", { class: "depth-lane", x: 0, y: top, width, height: bottom - top }));
+    laneLayer.append(el("text", { class: "depth-lane-label", x: 14, y: top + 16 }, laneNames[depth] || `Depth ${depth}`));
+  });
 
   graph.edges.forEach((edge) => {
     const from = byId.get(edge.from);
     const to = byId.get(edge.to);
     if (!from || !to) return;
 
-    const x1 = from.x + nodeWidth / 2;
-    const y1 = from.y + nodeHeight;
-    const x2 = to.x + nodeWidth / 2;
+    const x1 = from.x + from.size.width / 2;
+    const y1 = from.y + from.size.height;
+    const x2 = to.x + to.size.width / 2;
     const y2 = to.y;
     const midY = y1 + Math.max(36, (y2 - y1) / 2);
+    const muted = hasFocus && (!focusedPath.has(edge.from) || !focusedPath.has(edge.to));
     edgeLayer.append(el("path", {
-      class: edgeClass(edge.label),
+      class: `${edgeClass(edge.label)}${muted ? " is-muted" : ""}`,
       d: `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`,
     }));
 
     if (edge.label) {
-      edgeLayer.append(el("text", {
-        class: "edge-label",
-        x: (x1 + x2) / 2,
-        y: midY - 6,
-        "text-anchor": "middle",
-      }, edge.label));
+      const lx = (x1 + x2) / 2;
+      const ly = midY - 6;
+      const labelClass = `edge-chip edge-chip-${classifyEdge(edge.label)}${muted ? " is-muted" : ""}`;
+      const labelWidth = Math.max(42, edge.label.length * 6.8 + 14);
+      edgeLayer.append(el("g", { class: labelClass },
+        el("rect", { x: lx - labelWidth / 2, y: ly - 12, rx: 9, width: labelWidth, height: 18 }),
+        el("text", { class: "edge-label", x: lx, y: ly, "text-anchor": "middle" }, edge.label),
+      ));
     }
   });
 
   graph.nodes.forEach((node) => {
+    const isFocusNode = node.kind === "DID" && focusedDidNodeId === node.id;
+    const muted = hasFocus && !focusedPath.has(node.id);
     const group = el("g", {
-      class: `node kind-${node.kind.toLowerCase()}`,
+      class: `node kind-${node.kind.toLowerCase()}${muted ? " is-muted" : ""}${isFocusNode ? " is-focused" : ""}`,
       transform: `translate(${node.x} ${node.y})`,
     });
-    group.append(el("rect", { class: "node-card", width: nodeWidth, height: nodeHeight, rx: 8 }));
-    appendWrappedText(group, node.title, 14, 24, 25, "node-title");
-    appendWrappedText(group, node.sub, 14, 50, 29, "node-sub");
+    group.append(el("rect", { class: "node-card", width: node.size.width, height: node.size.height, rx: 8 }));
+    appendWrappedText(group, node.size.titleLines, 14, 24, "node-title");
+    appendWrappedText(group, node.size.subtitleLines, 14 + 0, 24 + (node.size.titleLines.length * 15) + 8, "node-sub");
+    if (node.kind === "DID") {
+      group.addEventListener("click", () => {
+        focusedDidNodeId = focusedDidNodeId === node.id ? null : node.id;
+        render();
+      });
+    }
     if (isExpandableNode(node)) {
       const expanded = isExpanded(node.key.replace(/^did/, "DID").replace(/^ivr/, "IVR").replace(/^ringgroup/, "RingGroup").replace(/^queue/, "Queue"));
-      const affordance = el("circle", { class: "expand-dot", cx: nodeWidth - 14, cy: 14, r: 9 });
+      const affordance = el("circle", { class: "expand-dot", cx: node.size.width - 14, cy: 14, r: 9 });
       affordance.addEventListener("click", (event) => {
         event.stopPropagation();
         const stateKey = node.key.replace(/^did/, "DID").replace(/^ivr/, "IVR").replace(/^ringgroup/, "RingGroup").replace(/^queue/, "Queue");
@@ -576,7 +636,7 @@ function renderSvg(graph) {
         else expansionState.add(stateKey);
         render();
       });
-      group.append(affordance, el("text", { class: "expand-glyph", x: nodeWidth - 14, y: 18, "text-anchor": "middle" }, expanded ? "−" : "+"));
+      group.append(affordance, el("text", { class: "expand-glyph", x: node.size.width - 14, y: 18, "text-anchor": "middle" }, expanded ? "−" : "+"));
     }
     nodeLayer.append(group);
   });
@@ -665,10 +725,9 @@ function medianRank(ids, orderLookup) {
   return (ranks[mid - 1] + ranks[mid]) / 2;
 }
 
-function appendWrappedText(group, value, x, y, maxChars, className) {
+function appendWrappedText(group, lines, x, y, className) {
   const textNode = el("text", { class: className, x, y });
-  const lines = wrap(value || "", maxChars).slice(0, 2);
-  lines.forEach((line, index) => {
+  (lines || [""]).forEach((line, index) => {
     textNode.append(el("tspan", { x, dy: index ? 15 : 0 }, line));
   });
   group.append(textNode);

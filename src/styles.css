@@ -333,13 +333,17 @@ svg {
 }
 
 .edge-label {
-  fill: #52616d;
-  font-size: 12px;
-  paint-order: stroke;
-  stroke: #fff;
-  stroke-width: 5px;
-  stroke-linejoin: round;
+  fill: #334155;
+  font-size: 11px;
+  font-weight: 600;
 }
+
+.edge-chip rect { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 1; }
+.edge-chip-office rect { fill: #eff6ff; stroke: #93c5fd; }
+.edge-chip-after rect { fill: #f5f3ff; stroke: #c4b5fd; }
+.edge-chip-holiday rect { fill: #ecfdf5; stroke: #86efac; }
+.edge-chip-timeout rect { fill: #fff7ed; stroke: #fdba74; }
+.edge-chip-no-answer rect { fill: #fef2f2; stroke: #fca5a5; }
 
 .node-card {
   fill: #fff;
@@ -485,3 +489,10 @@ svg {
 .legend-item.edge-holiday::before { border-color: #059669; border-top-style: dashed; }
 .legend-item.edge-timeout::before { border-color: #ea580c; border-top-style: dashed; }
 .legend-item.edge-no-answer::before { border-color: #dc2626; border-top-style: dotted; }
+
+
+.node.is-muted, .edge.is-muted, .edge-chip.is-muted { opacity: 0.2; }
+.node.kind-did { cursor: pointer; }
+.node.is-focused .node-card { stroke-width: 2.5; stroke: #b45309; }
+.depth-lane { fill: #94a3b8; opacity: 0.06; }
+.depth-lane-label { fill: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
