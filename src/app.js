@@ -408,6 +408,84 @@ function matchesDidQuery(node, query) {
   return compactText.includes(compactQuery);
 }
 
+
+function classifyEdge(label = "") {
+  const text = String(label || "").toLowerCase();
+  if (text.includes("office")) return "office";
+  if (text.includes("after")) return "after";
+  if (text.includes("holiday")) return "holiday";
+  if (text.includes("timeout")) return "timeout";
+  if (text.includes("no answer")) return "no-answer";
+  return "default";
+}
+
+function edgeClass(label = "") {
+  return `edge edge-${classifyEdge(label)}`;
+}
+
+function cycleDiagnostics(graph) {
+  const adjacency = new Map(graph.nodes.map((node) => [node.id, []]));
+  graph.edges.forEach((edge) => {
+    if (adjacency.has(edge.from) && adjacency.has(edge.to)) adjacency.get(edge.from).push(edge.to);
+  });
+
+  let index = 0;
+  const stack = [];
+  const onStack = new Set();
+  const ids = new Map();
+  const low = new Map();
+  const sccs = [];
+
+  function strongConnect(v) {
+    ids.set(v, index);
+    low.set(v, index);
+    index += 1;
+    stack.push(v);
+    onStack.add(v);
+
+    for (const w of adjacency.get(v) || []) {
+      if (!ids.has(w)) {
+        strongConnect(w);
+        low.set(v, Math.min(low.get(v), low.get(w)));
+      } else if (onStack.has(w)) {
+        low.set(v, Math.min(low.get(v), ids.get(w)));
+      }
+    }
+
+    if (low.get(v) === ids.get(v)) {
+      const component = [];
+      while (stack.length) {
+        const w = stack.pop();
+        onStack.delete(w);
+        component.push(w);
+        if (w === v) break;
+      }
+      sccs.push(component);
+    }
+  }
+
+  graph.nodes.forEach((node) => {
+    if (!ids.has(node.id)) strongConnect(node.id);
+  });
+
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  const cycles = [];
+  sccs.forEach((component) => {
+    if (component.length > 1) {
+      const labels = component.map((id) => byId.get(id)?.title || id).sort((a, b) => a.localeCompare(b));
+      cycles.push(labels);
+      return;
+    }
+    const only = component[0];
+    if ((adjacency.get(only) || []).includes(only)) {
+      const label = byId.get(only)?.title || only;
+      cycles.push([label]);
+    }
+  });
+
+  return cycles.sort((a, b) => a.join(" -> ").localeCompare(b.join(" -> ")));
+}
+
 function renderSvg(graph) {
   svg.replaceChildren();
 
@@ -458,7 +536,7 @@ function renderSvg(graph) {
     const y2 = to.y;
     const midY = y1 + Math.max(36, (y2 - y1) / 2);
     edgeLayer.append(el("path", {
-      class: "edge",
+      class: edgeClass(edge.label),
       d: `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`,
     }));
 
@@ -627,6 +705,12 @@ function renderDetails(system, page, graph, query) {
     `${Object.keys(system.ringGroups).length} ring groups`,
     `${Object.keys(system.queues).length} queues`,
   ]));
+
+  const cycles = cycleDiagnostics(graph);
+  details.append(detailCard("Cycle Diagnostics", [
+    cycles.length ? `${cycles.length} cycle${cycles.length === 1 ? "" : "s"} detected` : "No cycles detected",
+    ...cycles.map((cycle) => `${cycle.join(" -> ")} -> ${cycle[0]}`),
+  ]));
 }
 
 function detailCard(title, lines) {
@@ -772,33 +856,41 @@ function buildTreeExportHtml(system, graph, page, query) {
     .filter((node) => !incoming.has(node.id))
     .sort((a, b) => a.title.localeCompare(b.title));
 
-  const seen = new Set();
+  const globallyRendered = new Set();
 
-  function renderNode(nodeId) {
-    if (seen.has(nodeId)) return '<li><em>Loop detected</em></li>';
-    seen.add(nodeId);
-
+  function renderNode(nodeId, inPath = new Set()) {
     const node = byId.get(nodeId);
     if (!node) return "";
 
+    if (inPath.has(nodeId)) {
+      return `<div class="diag cycle">Cycle detected (${escapeHtml(node.title)} → … → ${escapeHtml(node.title)})</div>`;
+    }
+    if (globallyRendered.has(nodeId)) {
+      return `<div class="diag ref">Reference to previously rendered node. See ${escapeHtml(node.title)} (rendered above).</div>`;
+    }
+
+    globallyRendered.add(nodeId);
+    const nextPath = new Set(inPath);
+    nextPath.add(nodeId);
+
     const children = (outgoing.get(nodeId) || []).map((edge) => {
-      const edgeLabel = edge.label ? `<span class=\"edge\">${escapeHtml(edge.label)}:</span> ` : "";
-      return `<li>${edgeLabel}${renderNode(edge.to)}</li>`;
+      const edgeLabel = edge.label ? `<span class="edge">${escapeHtml(edge.label)}:</span> ` : "";
+      return `<li>${edgeLabel}${renderNode(edge.to, nextPath)}</li>`;
     }).join("");
 
-    const subtitle = node.sub ? `<div class=\"sub\">${escapeHtml(node.sub)}</div>` : "";
+    const subtitle = node.sub ? `<div class="sub">${escapeHtml(node.sub)}</div>` : "";
     const childList = children ? `<ul>${children}</ul>` : "";
-    return `<div class=\"node\"><strong>${escapeHtml(node.title)}</strong> <span class=\"kind\">(${escapeHtml(node.kind)})</span>${subtitle}</div>${childList}`;
+    return `<div class="node"><strong>${escapeHtml(node.title)}</strong> <span class="kind">(${escapeHtml(node.kind)})</span>${subtitle}</div>${childList}`;
   }
 
   const renderedTrees = roots.map((root) => `<li>${renderNode(root.id)}</li>`).join("");
   const exportedAt = new Date().toISOString();
 
   return `<!doctype html>
-<html lang=\"en\">
+<html lang="en">
 <head>
-<meta charset=\"utf-8\">
-<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Call Routing Tree Export</title>
 <style>
 body { font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif; margin: 2rem; color: #1f2937; }
@@ -809,11 +901,14 @@ ul { line-height: 1.45; }
 .sub { color: #4b5563; margin-left: 0.25rem; font-size: 0.93rem; }
 .kind { color: #6b7280; font-size: 0.9rem; }
 .edge { color: #374151; font-weight: 600; }
+.diag { margin: 0.25rem 0; font-size: 0.93rem; }
+.cycle { color: #9a3412; }
+.ref { color: #1d4ed8; }
 </style>
 </head>
 <body>
 <h1>3CX Call Routing Tree</h1>
-<p class=\"meta\">Page: ${escapeHtml(page)} | Filter: ${escapeHtml(query || "(none)")} | Exported: ${escapeHtml(exportedAt)} | Trunks: ${system.trunks.length}</p>
+<p class="meta">Page: ${escapeHtml(page)} | Filter: ${escapeHtml(query || "(none)")} | Exported: ${escapeHtml(exportedAt)} | Trunks: ${system.trunks.length}</p>
 <ul>${renderedTrees}</ul>
 </body>
 </html>`;
