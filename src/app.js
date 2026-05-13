@@ -136,15 +136,18 @@ function buildTrunkGraph(system, selectedTrunkNumber = null, selectedHoursMode =
       search: [trunk.name, trunk.number, trunk.direction].join(" "),
     });
 
+    const trunkKey = trunk.number || trunkIndex;
     const rules = trunk.rules.length ? trunk.rules : [{
       name: "Default inbound route",
       match: trunk.dids.join(", "),
       office: null,
+      outOfHours: null,
+      holidays: null,
     }];
 
     rules.forEach((rule, ruleIndex) => {
       const ruleId = addNode(graph, {
-        key: `did:${trunk.number}:${ruleIndex}`,
+        key: `did:${trunkKey}:${ruleIndex}`,
         kind: "DID",
         title: rule.match || rule.name || "Any DID",
         sub: rule.name || rule.condition || "DID rule",
@@ -152,7 +155,7 @@ function buildTrunkGraph(system, selectedTrunkNumber = null, selectedHoursMode =
         search: [rule.name, rule.match, rule.condition].join(" "),
       });
       addEdge(graph, trunkId, ruleId, "DID");
-      const didExpansionKey = `DID:${trunk.number}:${ruleIndex}`;
+      const didExpansionKey = `DID:${trunkKey}:${ruleIndex}`;
       if (isExpanded(didExpansionKey)) {
         if (selectedHoursMode === "all" || selectedHoursMode === "office") {
           expandDestination(graph, rule.office, ruleId, 2, "Office hours");
@@ -221,7 +224,7 @@ function expandDestination(graph, destination, fromId, depth, label) {
 
   const system = graph.system;
 
-  if (dest.kind === "IVR" && system.ivrs[dest.dn]) {
+  if (dest.kind === "IVR" && system.ivrs[dest.dn] && isExpanded(expansionKey)) {
     const ivr = system.ivrs[dest.dn];
     ivr.options.forEach((option) => {
       const optionDest = normalizeDestination(option.destination);
@@ -242,11 +245,12 @@ function expandDestination(graph, destination, fromId, depth, label) {
     addMemberSummaryNode(graph, nodeId, depth + 1, "Member", rg.members || [], `ring-members:${dest.dn}`);
   } else if (dest.kind === "Queue" && system.queues[dest.dn]) {
     const queue = system.queues[dest.dn];
+    const queueTimeout = queue.masterTimeout || queue.ringTimeout || "";
     if (isExpanded(expansionKey)) {
       expandDestination(graph, queue.officeHoursDestination, nodeId, depth + 1, "Office hours");
       expandDestination(graph, queue.outOfOfficeHoursDestination, nodeId, depth + 1, "After-hours");
       expandDestination(graph, queue.holidaysDestination, nodeId, depth + 1, "Holiday");
-      expandDestination(graph, queue.timeoutDestination, nodeId, depth + 1, queue.timeout ? `Timeout ${queue.timeout}s` : "Timeout");
+      expandDestination(graph, queue.timeoutDestination, nodeId, depth + 1, queueTimeout ? `Timeout ${queueTimeout}s` : "Timeout");
       addMemberSummaryNode(graph, nodeId, depth + 1, "Agent", queue.members || [], `queue-members:${dest.dn}`);
     }
   } else if (dest.kind === "IVR" && system.ivrs[dest.dn] && !isExpanded(expansionKey)) {
