@@ -152,14 +152,17 @@ function buildTrunkGraph(system, selectedTrunkNumber = null, selectedHoursMode =
         search: [rule.name, rule.match, rule.condition].join(" "),
       });
       addEdge(graph, trunkId, ruleId, "DID");
-      if (selectedHoursMode === "all" || selectedHoursMode === "office") {
-        expandDestination(graph, rule.office, ruleId, 2, "Office hours");
-      }
-      if (selectedHoursMode === "all" || selectedHoursMode === "after") {
-        expandDestination(graph, rule.outOfHours, ruleId, 2, "After-hours");
-      }
-      if (selectedHoursMode === "all" || selectedHoursMode === "holiday") {
-        expandDestination(graph, rule.holidays, ruleId, 2, "Holiday");
+      const didExpansionKey = `DID:${trunk.number}:${ruleIndex}`;
+      if (isExpanded(didExpansionKey)) {
+        if (selectedHoursMode === "all" || selectedHoursMode === "office") {
+          expandDestination(graph, rule.office, ruleId, 2, "Office hours");
+        }
+        if (selectedHoursMode === "all" || selectedHoursMode === "after") {
+          expandDestination(graph, rule.outOfHours, ruleId, 2, "After-hours");
+        }
+        if (selectedHoursMode === "all" || selectedHoursMode === "holiday") {
+          expandDestination(graph, rule.holidays, ruleId, 2, "Holiday");
+        }
       }
     });
   });
@@ -232,11 +235,17 @@ function expandDestination(graph, destination, fromId, depth, label) {
     expandDestination(graph, ivr.holidaysRoute, nodeId, depth + 1, "Holiday route");
   } else if (dest.kind === "RingGroup" && system.ringGroups[dest.dn] && isExpanded(expansionKey)) {
     const rg = system.ringGroups[dest.dn];
+    expandDestination(graph, rg.officeHoursDestination, nodeId, depth + 1, "Office hours");
+    expandDestination(graph, rg.outOfOfficeHoursDestination, nodeId, depth + 1, "After-hours");
+    expandDestination(graph, rg.holidaysDestination, nodeId, depth + 1, "Holiday");
     expandDestination(graph, rg.noAnswer, nodeId, depth + 1, "No answer");
     addMemberSummaryNode(graph, nodeId, depth + 1, "Member", rg.members || [], `ring-members:${dest.dn}`);
   } else if (dest.kind === "Queue" && system.queues[dest.dn]) {
     const queue = system.queues[dest.dn];
     if (isExpanded(expansionKey)) {
+      expandDestination(graph, queue.officeHoursDestination, nodeId, depth + 1, "Office hours");
+      expandDestination(graph, queue.outOfOfficeHoursDestination, nodeId, depth + 1, "After-hours");
+      expandDestination(graph, queue.holidaysDestination, nodeId, depth + 1, "Holiday");
       expandDestination(graph, queue.timeoutDestination, nodeId, depth + 1, queue.timeout ? `Timeout ${queue.timeout}s` : "Timeout");
       addMemberSummaryNode(graph, nodeId, depth + 1, "Agent", queue.members || [], `queue-members:${dest.dn}`);
     }
@@ -357,8 +366,12 @@ function filterGraph(graph, query) {
     collectDescendants(node.id, outgoing, keep);
   });
   seedNodes.forEach((node) => {
-    const [kind, dn] = node.key.split(":");
-    if (dn && ["ivr", "ringgroup", "queue", "did"].includes(kind)) expansionState.add(`${kind[0].toUpperCase()}${kind.slice(1)}:${dn}`);
+    const [kind, ...rest] = node.key.split(":");
+    const value = rest.join(":");
+    if (kind === "ivr" && value) expansionState.add(`IVR:${value}`);
+    if (kind === "ringgroup" && value) expansionState.add(`RingGroup:${value}`);
+    if (kind === "queue" && value) expansionState.add(`Queue:${value}`);
+    if (kind === "did" && value) expansionState.add(`DID:${value}`);
   });
 
   return {
@@ -489,6 +502,10 @@ function expandAllExpansibleNodes(system, target) {
   Object.keys(system.ivrs).forEach((dn) => target.add(`IVR:${dn}`));
   Object.keys(system.ringGroups).forEach((dn) => target.add(`RingGroup:${dn}`));
   Object.keys(system.queues).forEach((dn) => target.add(`Queue:${dn}`));
+  system.trunks.forEach((trunk, trunkIndex) => {
+    const trunkNumber = trunk.number || trunkIndex;
+    trunk.rules.forEach((_, ruleIndex) => target.add(`DID:${trunkNumber}:${ruleIndex}`));
+  });
 }
 
 function groupByDepth(graph) {

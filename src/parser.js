@@ -149,6 +149,9 @@ function parseSystem(xml, sourceEntry) {
         ringTime: text(child, "RingTime"),
         members: children(first(child, "Members"), "Member").map((m) => m.getAttribute("DN")).filter(Boolean),
         noAnswer: parseForwardTypeDestination(firstWithFallback(child, ["NoAnswerDestination", "Destination", "NoAnswerRoute"])),
+        officeHoursDestination: parseForwardTypeDestination(firstWithFallback(child, ["OfficeHoursDestination", "OfficeHoursRoute"])),
+        outOfOfficeHoursDestination: parseForwardTypeDestination(firstWithFallback(child, ["OutOfOfficeHoursDestination", "OutOfOfficeHoursRoute"])),
+        holidaysDestination: parseForwardTypeDestination(firstWithFallback(child, ["HolidaysDestination", "HolidaysRoute"])),
       };
     } else if (child.tagName === "Queue") {
       const number = text(child, "Number");
@@ -162,6 +165,9 @@ function parseSystem(xml, sourceEntry) {
         onHoldFile: text(child, "OnHoldFile"),
         members: children(first(child, "Members"), "Member").map((m) => m.getAttribute("DN")).filter(Boolean),
         timeoutDestination: parseForwardTypeDestination(firstWithFallback(child, ["TimeoutDestination", "Destination", "NoAnswerDestination"])),
+        officeHoursDestination: parseForwardTypeDestination(firstWithFallback(child, ["OfficeHoursDestination", "OfficeHoursRoute"])),
+        outOfOfficeHoursDestination: parseForwardTypeDestination(firstWithFallback(child, ["OutOfOfficeHoursDestination", "OutOfOfficeHoursRoute"])),
+        holidaysDestination: parseForwardTypeDestination(firstWithFallback(child, ["HolidaysDestination", "HolidaysRoute"])),
       };
     } else if (child.tagName === "RoutePoint") {
       system.routePoints[text(child, "Number")] = text(child, "Name");
