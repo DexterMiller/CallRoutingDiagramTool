@@ -122,10 +122,10 @@ function buildGraph(system, page, selectedHoursMode = "all") {
   return buildTrunkGraph(system, trunkNumber, selectedHoursMode);
 }
 
-function isBlankRule(rule) {
+function shouldShowTrunkRule(rule) {
   const match = String(rule?.match || "").trim();
   const name = String(rule?.name || "").trim();
-  return !match && !name;
+  return Boolean(match || name);
 }
 
 function buildTrunkGraph(system, selectedTrunkNumber = null, selectedHoursMode = "all") {
@@ -144,8 +144,9 @@ function buildTrunkGraph(system, selectedTrunkNumber = null, selectedHoursMode =
     });
 
     const trunkKey = trunk.number || trunkIndex;
-    const rules = trunk.rules.length
-      ? trunk.rules.filter((rule) => !isBlankRule(rule))
+    const visibleRules = trunk.rules.filter(shouldShowTrunkRule);
+    const rules = visibleRules.length
+      ? visibleRules
       : [{
       name: "Default inbound route",
       match: trunk.dids.join(", "),
@@ -158,7 +159,7 @@ function buildTrunkGraph(system, selectedTrunkNumber = null, selectedHoursMode =
       const ruleId = addNode(graph, {
         key: `did:${trunkKey}:${ruleIndex}`,
         kind: "DID",
-        title: rule.match || rule.name || "DID rule",
+        title: rule.match || rule.name || "Inbound rule",
         sub: rule.name || rule.condition || "DID rule",
         depth: 1,
         search: [rule.name, rule.match, rule.condition].join(" "),
@@ -761,7 +762,7 @@ function renderDetails(system, page, graph, query) {
 
   const selectedTrunk = getSelectedTrunk(system, page);
   const scopedTrunks = selectedTrunk ? [selectedTrunk] : system.trunks;
-  const scopedRules = scopedTrunks.flatMap((trunk) => trunk.rules.filter((rule) => !isBlankRule(rule)));
+  const scopedRules = scopedTrunks.flatMap((trunk) => trunk.rules.filter(shouldShowTrunkRule));
   const afterHoursRules = scopedRules.filter((rule) => rule.outOfHours || rule.holidays);
 
   details.append(detailCard(selectedTrunk ? "Trunk Summary" : "All Trunks Summary", [
