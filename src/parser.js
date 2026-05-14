@@ -323,14 +323,19 @@ function parseForwardingProfiles(extension) {
 
 function parseForwardTypeDestination(el) {
   if (!el) return null;
-  const routeDestination = parseRouteString(text(el));
-  if (routeDestination) return routeDestination;
+  if (!hasStructuredDestination(el)) {
+    return parseRouteString(text(el));
+  }
 
   return destinationFromTypeAndDn(
     text(el, "ForwardType") || text(el, "To"),
     text(el, "ForwardDN") || first(el, "Internal")?.getAttribute("DN") || "",
     text(el, "External"),
   );
+}
+
+function hasStructuredDestination(el) {
+  return ["ForwardType", "To", "ForwardDN", "Internal", "External"].some((tagName) => first(el, tagName));
 }
 
 function parseDestinationElement(el) {
