@@ -168,13 +168,13 @@ function buildTrunkGraph(system, selectedTrunkNumber = null, selectedHoursMode =
       const didExpansionKey = `DID:${trunkKey}:${ruleIndex}`;
       if (isExpanded(didExpansionKey)) {
         if (selectedHoursMode === "all" || selectedHoursMode === "office") {
-          expandDestination(graph, rule.office, ruleId, 2, "Office hours");
+          expandDestination(graph, rule.office, ruleId, 2, "Office hours", selectedHoursMode);
         }
         if (selectedHoursMode === "all" || selectedHoursMode === "after") {
-          expandDestination(graph, rule.outOfHours, ruleId, 2, "After-hours");
+          expandDestination(graph, rule.outOfHours, ruleId, 2, "After-hours", selectedHoursMode);
         }
         if (selectedHoursMode === "all" || selectedHoursMode === "holiday") {
-          expandDestination(graph, rule.holidays, ruleId, 2, "Holiday");
+          expandDestination(graph, rule.holidays, ruleId, 2, "Holiday", selectedHoursMode);
         }
       }
     });
@@ -220,7 +220,7 @@ function addEdge(graph, from, to, label) {
   graph.edges.push({ key, from, to, label: label || "" });
 }
 
-function expandDestination(graph, destination, fromId, depth, label) {
+function expandDestination(graph, destination, fromId, depth, label, selectedHoursMode = "all") {
   const nodeId = destinationNode(graph, destination, depth);
   if (!nodeId) return;
   addEdge(graph, fromId, nodeId, label);
@@ -237,34 +237,58 @@ function expandDestination(graph, destination, fromId, depth, label) {
   if (dest.kind === "IVR" && system.ivrs[dest.dn] && isExpanded(expansionKey)) {
     const ivr = system.ivrs[dest.dn];
     ivr.options.forEach((option) => {
-      expandDestination(graph, option.destination, nodeId, depth + 1, option.digit ? `Press ${option.digit}` : "Menu");
+      expandDestination(graph, option.destination, nodeId, depth + 1, option.digit ? `Press ${option.digit}` : "Menu", selectedHoursMode);
     });
-    expandDestination(graph, ivr.timeoutDestination, nodeId, depth + 1, ivr.timeout ? `Timeout ${ivr.timeout}s` : "Timeout");
-    expandDestination(graph, ivr.officeRoute, nodeId, depth + 1, "Office route");
-    expandDestination(graph, ivr.outOfHoursRoute, nodeId, depth + 1, "After-hours");
-    expandDestination(graph, ivr.breakRoute, nodeId, depth + 1, "Break route");
-    expandDestination(graph, ivr.holidaysRoute, nodeId, depth + 1, "Holiday route");
+    expandDestination(graph, ivr.timeoutDestination, nodeId, depth + 1, ivr.timeout ? `Timeout ${ivr.timeout}s` : "Timeout", selectedHoursMode);
+    if (shouldShowScheduledRoute(selectedHoursMode, "office")) {
+      expandDestination(graph, ivr.officeRoute, nodeId, depth + 1, "Office route", selectedHoursMode);
+    }
+    if (shouldShowScheduledRoute(selectedHoursMode, "after")) {
+      expandDestination(graph, ivr.outOfHoursRoute, nodeId, depth + 1, "After-hours", selectedHoursMode);
+    }
+    if (selectedHoursMode === "all") {
+      expandDestination(graph, ivr.breakRoute, nodeId, depth + 1, "Break route", selectedHoursMode);
+    }
+    if (shouldShowScheduledRoute(selectedHoursMode, "holiday")) {
+      expandDestination(graph, ivr.holidaysRoute, nodeId, depth + 1, "Holiday route", selectedHoursMode);
+    }
   } else if (dest.kind === "RingGroup" && system.ringGroups[dest.dn] && isExpanded(expansionKey)) {
     const rg = system.ringGroups[dest.dn];
-    expandDestination(graph, rg.officeHoursDestination, nodeId, depth + 1, "Office hours");
-    expandDestination(graph, rg.outOfOfficeHoursDestination, nodeId, depth + 1, "After-hours");
-    expandDestination(graph, rg.holidaysDestination, nodeId, depth + 1, "Holiday");
-    expandDestination(graph, rg.noAnswer, nodeId, depth + 1, "No answer");
+    if (shouldShowScheduledRoute(selectedHoursMode, "office")) {
+      expandDestination(graph, rg.officeHoursDestination, nodeId, depth + 1, "Office hours", selectedHoursMode);
+    }
+    if (shouldShowScheduledRoute(selectedHoursMode, "after")) {
+      expandDestination(graph, rg.outOfOfficeHoursDestination, nodeId, depth + 1, "After-hours", selectedHoursMode);
+    }
+    if (shouldShowScheduledRoute(selectedHoursMode, "holiday")) {
+      expandDestination(graph, rg.holidaysDestination, nodeId, depth + 1, "Holiday", selectedHoursMode);
+    }
+    expandDestination(graph, rg.noAnswer, nodeId, depth + 1, "No answer", selectedHoursMode);
     addMemberSummaryNode(graph, nodeId, depth + 1, "Member", rg.members || [], `ring-members:${dest.dn}`);
   } else if (dest.kind === "Queue" && system.queues[dest.dn]) {
     const queue = system.queues[dest.dn];
     const queueTimeout = queue.masterTimeout || queue.ringTimeout || "";
     if (isExpanded(expansionKey)) {
-      expandDestination(graph, queue.officeHoursDestination, nodeId, depth + 1, "Office hours");
-      expandDestination(graph, queue.outOfOfficeHoursDestination, nodeId, depth + 1, "After-hours");
-      expandDestination(graph, queue.holidaysDestination, nodeId, depth + 1, "Holiday");
-      expandDestination(graph, queue.timeoutDestination, nodeId, depth + 1, queueTimeout ? `Timeout ${queueTimeout}s` : "Timeout");
+      if (shouldShowScheduledRoute(selectedHoursMode, "office")) {
+        expandDestination(graph, queue.officeHoursDestination, nodeId, depth + 1, "Office hours", selectedHoursMode);
+      }
+      if (shouldShowScheduledRoute(selectedHoursMode, "after")) {
+        expandDestination(graph, queue.outOfOfficeHoursDestination, nodeId, depth + 1, "After-hours", selectedHoursMode);
+      }
+      if (shouldShowScheduledRoute(selectedHoursMode, "holiday")) {
+        expandDestination(graph, queue.holidaysDestination, nodeId, depth + 1, "Holiday", selectedHoursMode);
+      }
+      expandDestination(graph, queue.timeoutDestination, nodeId, depth + 1, queueTimeout ? `Timeout ${queueTimeout}s` : "Timeout", selectedHoursMode);
       addMemberSummaryNode(graph, nodeId, depth + 1, "Agent", queue.members || [], `queue-members:${dest.dn}`);
     }
   } else if (dest.kind === "IVR" && system.ivrs[dest.dn] && !isExpanded(expansionKey)) {
     const ivr = system.ivrs[dest.dn];
-    expandDestination(graph, ivr.timeoutDestination, nodeId, depth + 1, ivr.timeout ? `Timeout ${ivr.timeout}s` : "Timeout");
+    expandDestination(graph, ivr.timeoutDestination, nodeId, depth + 1, ivr.timeout ? `Timeout ${ivr.timeout}s` : "Timeout", selectedHoursMode);
   }
+}
+
+function shouldShowScheduledRoute(selectedHoursMode, routeHoursMode) {
+  return selectedHoursMode === "all" || selectedHoursMode === routeHoursMode;
 }
 
 function addMemberSummaryNode(graph, parentId, depth, labelPrefix, members, key) {
