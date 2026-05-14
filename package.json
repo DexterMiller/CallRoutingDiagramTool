@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "verify": "node scripts/verify-routing.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },
