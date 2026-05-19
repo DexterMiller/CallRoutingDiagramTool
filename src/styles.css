@@ -288,6 +288,14 @@ body.app-ready .toolbar.app-ready-only {
   padding: 9px 12px;
 }
 
+.export-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .empty-state {
   align-self: start;
   margin: 24px 18px;

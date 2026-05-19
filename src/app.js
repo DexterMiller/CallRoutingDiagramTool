@@ -100,6 +100,11 @@ document.querySelector("#export-html").addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
+document.querySelector("#export-pdf").addEventListener("click", () => {
+  if (!currentSystem || !lastRenderedGraph) return;
+  exportDiagramPdf();
+});
+
 function setAppReady(isReady) {
   document.body.classList.toggle("app-ready", isReady);
 }
@@ -1004,6 +1009,68 @@ ul { line-height: 1.45; }
 <ul>${renderedTrees}</ul>
 </body>
 </html>`;
+}
+
+function exportDiagramPdf() {
+  const legendEnabled = document.querySelector("#pdf-legend")?.checked ?? true;
+  const footerEnabled = document.querySelector("#pdf-footer")?.checked ?? true;
+  const exportedAt = new Date().toLocaleString();
+  const title = pageTitle?.textContent || "Call Routing";
+  const subtitle = pageSubtitle?.textContent || "";
+  const filterText = searchInput.value.trim() || "(none)";
+  const svgMarkup = svg.outerHTML;
+  const pageLabel = currentPage === "all-trunks" ? "All Trunks" : currentPage.replace("trunk:", "Trunk ");
+
+  const printWindow = window.open("", "_blank", "noopener,noreferrer");
+  if (!printWindow) return;
+  printWindow.document.write(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Call Routing Diagram PDF Export</title>
+<style>
+@page { size: landscape; margin: 12mm; }
+body { margin: 0; color: #0f172a; font-family: Inter, Segoe UI, Arial, sans-serif; }
+.header { border-bottom: 1px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 10px; }
+.company { font-weight: 800; letter-spacing: 0.02em; font-size: 14px; }
+.meta, .sub { color: #475569; font-size: 11px; }
+.sub { margin-top: 4px; }
+.diagram { border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; break-inside: avoid; }
+.diagram svg { width: 100%; height: auto; background: white; }
+.legend { margin-top: 8px; display: flex; gap: 14px; flex-wrap: wrap; font-size: 10px; color: #334155; }
+.legend-item::before { content: ""; display: inline-block; width: 14px; border-top: 2px solid #64748b; margin-right: 5px; transform: translateY(-2px); }
+.legend-item.edge-office::before { border-color: #2563eb; }
+.legend-item.edge-after::before { border-color: #7c3aed; border-top-style: dashed; }
+.legend-item.edge-holiday::before { border-color: #059669; border-top-style: dashed; }
+.legend-item.edge-timeout::before { border-color: #ea580c; border-top-style: dashed; }
+.legend-item.edge-no-answer::before { border-color: #dc2626; border-top-style: dotted; }
+.footer { margin-top: 8px; padding-top: 6px; border-top: 1px solid #cbd5e1; color: #64748b; font-size: 10px; display: flex; justify-content: space-between; }
+.page-num::after { content: "Page " counter(page); }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="company">3CX Call Routing Diagram Tool</div>
+    <div class="meta">Tenant source: ${escapeHtml(currentSystem.sourceEntry)} | Exported: ${escapeHtml(exportedAt)} | Scope: ${escapeHtml(pageLabel)} | Filter: ${escapeHtml(filterText)}</div>
+    <div class="sub">${escapeHtml(title)} — ${escapeHtml(subtitle)}</div>
+  </div>
+  <div class="diagram">${svgMarkup}</div>
+  ${legendEnabled ? `<div class="legend">
+    <span class="legend-item edge-office">Office hours</span>
+    <span class="legend-item edge-after">After-hours</span>
+    <span class="legend-item edge-holiday">Holiday</span>
+    <span class="legend-item edge-timeout">Timeout</span>
+    <span class="legend-item edge-no-answer">No answer</span>
+  </div>` : ""}
+  ${footerEnabled ? `<div class="footer"><span>Generated for client/management sharing</span><span class="page-num"></span></div>` : ""}
+</body>
+</html>`);
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => {
+    printWindow.print();
+    printWindow.close();
+  }, 180);
 }
 
 function escapeHtml(value) {
