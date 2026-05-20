@@ -1021,9 +1021,7 @@ function exportDiagramPdf() {
   const svgMarkup = svg.outerHTML;
   const pageLabel = currentPage === "all-trunks" ? "All Trunks" : currentPage.replace("trunk:", "Trunk ");
 
-  const printWindow = window.open("", "_blank", "noopener,noreferrer");
-  if (!printWindow) return;
-  printWindow.document.write(`<!doctype html>
+  const exportHtml = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -1064,13 +1062,34 @@ body { margin: 0; color: #0f172a; font-family: Inter, Segoe UI, Arial, sans-seri
   </div>` : ""}
   ${footerEnabled ? `<div class="footer"><span>Generated for client/management sharing</span><span class="page-num"></span></div>` : ""}
 </body>
-</html>`);
-  printWindow.document.close();
-  printWindow.focus();
-  setTimeout(() => {
-    printWindow.print();
-    printWindow.close();
-  }, 180);
+</html>`;
+
+  const printFrame = document.createElement("iframe");
+  printFrame.setAttribute("aria-hidden", "true");
+  printFrame.style.position = "fixed";
+  printFrame.style.right = "0";
+  printFrame.style.bottom = "0";
+  printFrame.style.width = "0";
+  printFrame.style.height = "0";
+  printFrame.style.border = "0";
+
+  const cleanup = () => {
+    setTimeout(() => printFrame.remove(), 500);
+  };
+
+  printFrame.onload = () => {
+    const frameWindow = printFrame.contentWindow;
+    if (!frameWindow) {
+      cleanup();
+      return;
+    }
+    frameWindow.focus();
+    frameWindow.print();
+    cleanup();
+  };
+
+  document.body.appendChild(printFrame);
+  printFrame.srcdoc = exportHtml;
 }
 
 function escapeHtml(value) {
