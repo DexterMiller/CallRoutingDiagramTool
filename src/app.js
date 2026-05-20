@@ -939,6 +939,7 @@ function el(tag, attributes = {}, text = "") {
 
 
 function buildTreeExportHtml(system, graph, page, query) {
+  const defaultExpandedDepth = 1;
   const byId = new Map(Array.from(graph.nodes.values()).map((node) => [node.id, node]));
   const outgoing = new Map();
   const incoming = new Set();
@@ -955,7 +956,7 @@ function buildTreeExportHtml(system, graph, page, query) {
 
   const globallyRendered = new Set();
 
-  function renderNode(nodeId, inPath = new Set()) {
+  function renderNode(nodeId, inPath = new Set(), depth = 0) {
     const node = byId.get(nodeId);
     if (!node) return "";
 
@@ -972,12 +973,19 @@ function buildTreeExportHtml(system, graph, page, query) {
 
     const children = (outgoing.get(nodeId) || []).map((edge) => {
       const edgeLabel = edge.label ? `<span class="edge">${escapeHtml(edge.label)}:</span> ` : "";
-      return `<li>${edgeLabel}${renderNode(edge.to, nextPath)}</li>`;
+      return `<li>${edgeLabel}${renderNode(edge.to, nextPath, depth + 1)}</li>`;
     }).join("");
 
     const subtitle = node.sub ? `<div class="sub">${escapeHtml(node.sub)}</div>` : "";
     const childList = children ? `<ul>${children}</ul>` : "";
-    return `<div class="node"><strong>${escapeHtml(node.title)}</strong> <span class="kind">(${escapeHtml(node.kind)})</span>${subtitle}</div>${childList}`;
+    const nodeHeader = `<div class="node"><strong>${escapeHtml(node.title)}</strong> <span class="kind">(${escapeHtml(node.kind)})</span>${subtitle}</div>`;
+
+    if (!children) {
+      return nodeHeader;
+    }
+
+    const openAttr = depth <= defaultExpandedDepth ? " open" : "";
+    return `<details class="branch depth-${depth}"${openAttr}><summary>${nodeHeader}</summary>${childList}</details>`;
   }
 
   const renderedTrees = roots.map((root) => `<li>${renderNode(root.id)}</li>`).join("");
@@ -994,6 +1002,7 @@ body { font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif; margi
 h1 { margin-bottom: 0.25rem; }
 .meta { color: #4b5563; margin-bottom: 1rem; }
 ul { line-height: 1.45; }
+.tree { padding-left: 1.2rem; }
 .node { margin: 0.35rem 0; }
 .sub { color: #4b5563; margin-left: 0.25rem; font-size: 0.93rem; }
 .kind { color: #6b7280; font-size: 0.9rem; }
@@ -1001,12 +1010,57 @@ ul { line-height: 1.45; }
 .diag { margin: 0.25rem 0; font-size: 0.93rem; }
 .cycle { color: #9a3412; }
 .ref { color: #1d4ed8; }
+details > summary { cursor: pointer; list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before {
+  content: "▸";
+  color: #4b5563;
+  display: inline-block;
+  width: 1rem;
+  margin-left: -1rem;
+}
+details[open] > summary::before { content: "▾"; }
+.controls { display: flex; gap: 0.5rem; margin: 0.5rem 0 1rem; }
+.controls button {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.controls button:hover { background: #eef2f7; }
 </style>
 </head>
 <body>
 <h1>3CX Call Routing Tree</h1>
 <p class="meta">Page: ${escapeHtml(page)} | Filter: ${escapeHtml(query || "(none)")} | Exported: ${escapeHtml(exportedAt)} | Trunks: ${system.trunks.length}</p>
-<ul>${renderedTrees}</ul>
+<div class="controls">
+  <button type="button" id="expand-all">Expand all</button>
+  <button type="button" id="collapse-all">Collapse all</button>
+</div>
+<ul class="tree">${renderedTrees}</ul>
+<script>
+(() => {
+  const defaultExpandedDepth = ${defaultExpandedDepth};
+  const details = Array.from(document.querySelectorAll("details.branch"));
+  const expandButton = document.querySelector("#expand-all");
+  const collapseButton = document.querySelector("#collapse-all");
+
+  expandButton?.addEventListener("click", () => {
+    details.forEach((node) => node.open = true);
+  });
+
+  collapseButton?.addEventListener("click", () => {
+    details.forEach((node) => {
+      const depthClass = Array.from(node.classList).find((name) => name.startsWith("depth-"));
+      const depth = Number.parseInt(depthClass?.replace("depth-", "") || "0", 10);
+      node.open = depth <= defaultExpandedDepth;
+    });
+  });
+})();
+</script>
 </body>
 </html>`;
 }
