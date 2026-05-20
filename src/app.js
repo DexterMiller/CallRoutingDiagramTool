@@ -1035,6 +1035,33 @@ body { margin: 0; color: #0f172a; font-family: Inter, Segoe UI, Arial, sans-seri
 .sub { margin-top: 4px; }
 .diagram { border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; break-inside: avoid; }
 .diagram svg { width: 100%; height: auto; background: white; }
+.diagram .edge { fill: none; stroke: #8695a1; stroke-width: 2; }
+.diagram .edge-office { stroke: #2563eb; }
+.diagram .edge-after { stroke: #7c3aed; stroke-dasharray: 7 4; }
+.diagram .edge-holiday { stroke: #059669; stroke-dasharray: 7 4; }
+.diagram .edge-timeout { stroke: #ea580c; stroke-dasharray: 7 4; }
+.diagram .edge-no-answer { stroke: #dc2626; stroke-dasharray: 2.5 3.5; }
+.diagram .node-card { fill: #ffffff; stroke: #bdc9d3; stroke-width: 1.5; filter: none; }
+.diagram .node-title { fill: #0f172a; font-size: 13px; font-weight: 700; }
+.diagram .node-sub { fill: #475569; font-size: 12px; }
+.diagram .kind-trunk .node-card { stroke: #0b6ab5; fill: #f0f7fc; }
+.diagram .kind-did .node-card { stroke: #d97706; fill: #fff7ed; }
+.diagram .kind-ivr .node-card { stroke: #2563eb; fill: #eff6ff; }
+.diagram .kind-ringgroup .node-card { stroke: #0f766e; fill: #ecfeff; }
+.diagram .kind-queue .node-card { stroke: #7c3aed; fill: #f5f3ff; }
+.diagram .kind-extension .node-card { stroke: #475569; fill: #f8fafc; }
+.diagram .kind-voicemail .node-card { stroke: #4f46e5; fill: #eef2ff; }
+.diagram .kind-external .node-card { stroke: #be185d; fill: #fdf2f8; }
+.diagram .kind-endcall .node-card { stroke: #b91c1c; fill: #fef2f2; }
+.diagram .edge-label { fill: #334155; font-size: 11px; font-weight: 600; }
+.diagram .edge-chip rect { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 1; }
+.diagram .edge-chip-office rect { fill: #eff6ff; stroke: #93c5fd; }
+.diagram .edge-chip-after rect { fill: #f5f3ff; stroke: #c4b5fd; }
+.diagram .edge-chip-holiday rect { fill: #ecfdf5; stroke: #86efac; }
+.diagram .edge-chip-timeout rect { fill: #fff7ed; stroke: #fdba74; }
+.diagram .edge-chip-no-answer rect { fill: #fef2f2; stroke: #fca5a5; }
+.diagram .depth-lane { fill: #f8fafc; }
+.diagram .depth-lane-label { fill: #94a3b8; font-size: 11px; font-weight: 700; }
 .legend { margin-top: 8px; display: flex; gap: 14px; flex-wrap: wrap; font-size: 10px; color: #334155; }
 .legend-item::before { content: ""; display: inline-block; width: 14px; border-top: 2px solid #64748b; margin-right: 5px; transform: translateY(-2px); }
 .legend-item.edge-office::before { border-color: #2563eb; }
