@@ -943,122 +943,183 @@ function buildTreeExportHtml(system, graph, page, query) {
   const byId = new Map(Array.from(graph.nodes.values()).map((node) => [node.id, node]));
   const outgoing = new Map();
   const incoming = new Set();
-
   graph.edges.forEach((edge) => {
     if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
     outgoing.get(edge.from).push(edge);
     incoming.add(edge.to);
   });
 
-  const roots = Array.from(graph.nodes.values())
-    .filter((node) => !incoming.has(node.id))
-    .sort((a, b) => a.title.localeCompare(b.title));
+  const roots = Array.from(graph.nodes.values()).filter((node) => !incoming.has(node.id));
+  const didRoots = roots.filter((node) => node.kind === "DID").sort((a, b) => a.title.localeCompare(b.title));
+  const exportedAt = new Date().toISOString();
 
-  const globallyRendered = new Set();
-
-  function renderNode(nodeId, inPath = new Set(), depth = 0) {
-    const node = byId.get(nodeId);
-    if (!node) return "";
-
-    if (inPath.has(nodeId)) {
-      return `<div class="diag cycle">Cycle detected (${escapeHtml(node.title)} → … → ${escapeHtml(node.title)})</div>`;
-    }
-    if (globallyRendered.has(nodeId)) {
-      return `<div class="diag ref">Reference to previously rendered node. See ${escapeHtml(node.title)} (rendered above).</div>`;
-    }
-
-    globallyRendered.add(nodeId);
-    const nextPath = new Set(inPath);
-    nextPath.add(nodeId);
-
-    const children = (outgoing.get(nodeId) || []).map((edge) => {
-      const edgeLabel = edge.label ? `<span class="edge">${escapeHtml(edge.label)}:</span> ` : "";
-      return `<li>${edgeLabel}${renderNode(edge.to, nextPath, depth + 1)}</li>`;
-    }).join("");
-
-    const subtitle = node.sub ? `<div class="sub">${escapeHtml(node.sub)}</div>` : "";
-    const childList = children ? `<ul>${children}</ul>` : "";
-    const nodeHeader = `<div class="node"><strong>${escapeHtml(node.title)}</strong> <span class="kind">(${escapeHtml(node.kind)})</span>${subtitle}</div>`;
-
-    if (!children) {
-      return nodeHeader;
-    }
-
-    const openAttr = depth <= defaultExpandedDepth ? " open" : "";
-    return `<details class="branch depth-${depth}"${openAttr}><summary>${nodeHeader}</summary>${childList}</details>`;
+  function nodeCategory(node) {
+    const title = `${node?.title || ""} ${node?.sub || ""}`.toLowerCase();
+    if (!node) return "none";
+    if (node.kind === "VoiceMail") return "voicemail";
+    if (node.kind === "Extension" || title.includes("fax")) return "direct";
+    if (node.kind === "End" || title.includes("none")) return "none";
+    if (node.kind === "RingGroup" || node.kind === "Queue" || node.kind === "IVR") return "main";
+    return "other";
   }
 
-  const renderedTrees = roots.map((root) => `<li>${renderNode(root.id)}</li>`).join("");
-  const exportedAt = new Date().toISOString();
+  function classifyDid(didNode) {
+    const firstEdge = (outgoing.get(didNode.id) || [])[0];
+    const firstTarget = firstEdge ? byId.get(firstEdge.to) : null;
+    const cat = nodeCategory(firstTarget);
+    return cat === "main" ? "main" : cat === "direct" ? "direct" : cat === "voicemail" ? "voicemail" : cat === "none" ? "none" : "other";
+  }
+
+  const didRecords = didRoots.map((did) => {
+    const firstEdge = (outgoing.get(did.id) || [])[0];
+    const firstTarget = firstEdge ? byId.get(firstEdge.to) : null;
+    const officeDestination = firstTarget ? `${firstTarget.title} (${firstTarget.kind})` : "None";
+    const category = classifyDid(did);
+    return { id: did.id, did, category, officeDestination };
+  });
+
+  const destinationUsage = new Map();
+  didRecords.forEach((record) => {
+    const edge = (outgoing.get(record.id) || [])[0];
+    const key = edge ? edge.to : "none";
+    destinationUsage.set(key, (destinationUsage.get(key) || 0) + 1);
+  });
+  const mainSharedCount = Array.from(destinationUsage.values()).filter((count) => count > 1).reduce((sum, c) => sum + c, 0);
+  const noDestinationCount = didRecords.filter((d) => d.category === "none").length;
+  const directCount = didRecords.filter((d) => d.category === "direct").length;
+
+  function collectNotes() {
+    const notes = [];
+    didRecords.forEach((record) => {
+      const edges = outgoing.get(record.id) || [];
+      const noDest = edges.length === 0 || record.category === "none";
+      if (noDest) notes.push(`DID ${record.did.title} has no destination or routes to None.`);
+      const firstEdge = edges[0];
+      if (firstEdge && (destinationUsage.get(firstEdge.to) || 0) > 1) {
+        notes.push(`DID ${record.did.title} reuses a shared/main route.`);
+      }
+      if (record.category === "voicemail") notes.push(`DID ${record.did.title} is voicemail-only at office-hours routing.`);
+    });
+    graph.edges.forEach((edge) => {
+      const label = (edge.label || "").toLowerCase();
+      const timeoutMatch = label.match(/timeout\s*(\d+)/);
+      if (timeoutMatch && Number.parseInt(timeoutMatch[1], 10) >= 45) notes.push(`Long queue timeout detected: "${edge.label}".`);
+    });
+    notes.push("References to previously rendered nodes are shown to prevent duplicate expansion loops.");
+    return notes;
+  }
+
+  const reviewNotes = collectNotes();
+
+  function renderNode(nodeId, inPath = new Set(), rendered = new Set(), depth = 0) {
+    const node = byId.get(nodeId);
+    if (!node) return "";
+    if (inPath.has(nodeId)) {
+      return `<div class="diag cycle">Cycle detected (${escapeHtml(node.title)} → … → ${escapeHtml(node.title)}).</div>`;
+    }
+    if (rendered.has(nodeId)) {
+      return `<div class="diag ref">Reference to previously rendered node: ${escapeHtml(node.title)}.</div>`;
+    }
+    rendered.add(nodeId);
+    const pathNext = new Set(inPath);
+    pathNext.add(nodeId);
+    const children = (outgoing.get(nodeId) || []).map((edge) => `<li><div class="edge-row"><span class="edge-label">${escapeHtml(edge.label || "Next")}</span>${renderNode(edge.to, pathNext, rendered, depth + 1)}</div></li>`).join("");
+    const sub = node.sub ? `<div class="node-sub">${escapeHtml(node.sub)}</div>` : "";
+    const body = `<div class="node-row"><span class="kind-badge kind-${escapeHtml(node.kind.toLowerCase())}">${escapeHtml(node.kind)}</span><strong>${escapeHtml(node.title)}</strong>${sub}</div>`;
+    if (!children) return `<div class="leaf">${body}</div>`;
+    const openAttr = depth <= defaultExpandedDepth ? " open" : "";
+    return `<details class="branch depth-${depth}"${openAttr}><summary>${body}</summary><ul>${children}</ul></details>`;
+  }
+
+  const cardsHtml = didRecords.map((record) => {
+    const rendered = new Set();
+    const tree = renderNode(record.id, new Set(), rendered, 0);
+    return `<details class="did-card" open data-did-card data-category="${escapeHtml(record.category)}" data-search="${escapeHtml(`${record.did.title} ${record.did.sub || ""} ${record.officeDestination}`.toLowerCase())}" id="card-${escapeHtml(record.id)}">
+      <summary><div class="card-head"><span>${escapeHtml(record.did.title)}</span><span class="route-badge ${escapeHtml(record.category)}">${escapeHtml(record.category)}</span></div></summary>
+      <div class="card-meta">${escapeHtml(record.did.sub || "(no label)")} • Office-hours destination: ${escapeHtml(record.officeDestination)}</div>
+      <div class="route-tree">${tree}</div>
+    </details>`;
+  }).join("");
+
+  const overviewRows = didRecords.map((record) => `<tr data-overview-row data-category="${escapeHtml(record.category)}" data-search="${escapeHtml(`${record.did.title} ${record.did.sub || ""} ${record.officeDestination}`.toLowerCase())}">
+    <td>${escapeHtml(record.did.title)}</td><td>${escapeHtml(record.did.sub || "")}</td><td>${escapeHtml(record.officeDestination)}</td><td>${record.category === "none" ? "Check destination" : "OK"}</td>
+    <td><button type="button" class="view-btn" data-target="card-${escapeHtml(record.id)}">View</button></td>
+  </tr>`).join("");
 
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Call Routing Tree Export</title>
+<title>3CX Call Routing Tree</title>
 <style>
-body { font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif; margin: 2rem; color: #1f2937; }
-h1 { margin-bottom: 0.25rem; }
-.meta { color: #4b5563; margin-bottom: 1rem; }
-ul { line-height: 1.45; }
-.tree { padding-left: 1.2rem; }
-.node { margin: 0.35rem 0; }
-.sub { color: #4b5563; margin-left: 0.25rem; font-size: 0.93rem; }
-.kind { color: #6b7280; font-size: 0.9rem; }
-.edge { color: #374151; font-weight: 600; }
-.diag { margin: 0.25rem 0; font-size: 0.93rem; }
-.cycle { color: #9a3412; }
-.ref { color: #1d4ed8; }
-details > summary { cursor: pointer; list-style: none; }
-details > summary::-webkit-details-marker { display: none; }
-details > summary::before {
-  content: "▸";
-  color: #4b5563;
-  display: inline-block;
-  width: 1rem;
-  margin-left: -1rem;
-}
-details[open] > summary::before { content: "▾"; }
-.controls { display: flex; gap: 0.5rem; margin: 0.5rem 0 1rem; }
-.controls button {
-  border: 1px solid #cbd5e1;
-  background: #f8fafc;
-  color: #0f172a;
-  border-radius: 6px;
-  padding: 0.3rem 0.6rem;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-.controls button:hover { background: #eef2f7; }
+*{box-sizing:border-box}body{font-family:Inter,system-ui,sans-serif;margin:0;background:#f8fafc;color:#0f172a}
+.wrap{max-width:1200px;margin:0 auto;padding:16px}.panel{background:#fff;border:1px solid #dbe4ee;border-radius:8px;padding:12px;margin-bottom:12px}
+h1{margin:0 0 8px}.meta{color:#475569;font-size:13px}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:10px}
+.stat{border:1px solid #dbe4ee;border-radius:8px;padding:8px;background:#f8fafc}.toolbar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+input,select,button{border:1px solid #cbd5e1;border-radius:6px;padding:7px 9px;font-size:14px;background:#fff}button{cursor:pointer}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}
+.did-card{border:1px solid #dbe4ee;border-radius:8px;padding:8px;margin-bottom:10px;background:#fff}.card-head{display:flex;justify-content:space-between;gap:8px}
+.route-badge{border-radius:999px;padding:2px 8px;font-size:12px;text-transform:capitalize}.route-badge.main{background:#e0f2fe}.route-badge.direct{background:#e2e8f0}.route-badge.voicemail{background:#e0e7ff}.route-badge.none{background:#fee2e2}.route-badge.other{background:#ecfeff}
+.node-row{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}.kind-badge{font-size:11px;padding:2px 6px;border-radius:999px;background:#f1f5f9}
+.edge-label{font-weight:600;color:#334155;margin-right:8px}.edge-row{margin:6px 0}.node-sub{color:#64748b;font-size:13px;flex:1 1 100%}
+details>summary{list-style:none;cursor:pointer} details>summary::-webkit-details-marker{display:none}
+.diag.ref{color:#1d4ed8}.diag.cycle{color:#9a3412}.notes li{margin-bottom:6px}
+@media (max-width:700px){.wrap{padding:10px}th:nth-child(2),td:nth-child(2){display:none}}
 </style>
 </head>
 <body>
-<h1>3CX Call Routing Tree</h1>
-<p class="meta">Page: ${escapeHtml(page)} | Filter: ${escapeHtml(query || "(none)")} | Exported: ${escapeHtml(exportedAt)} | Trunks: ${system.trunks.length}</p>
-<div class="controls">
-  <button type="button" id="expand-all">Expand all</button>
-  <button type="button" id="collapse-all">Collapse all</button>
-</div>
-<ul class="tree">${renderedTrees}</ul>
+<div class="wrap">
+<section class="panel"><h1>3CX Call Routing Tree</h1><p class="meta">Page: ${escapeHtml(page)} | Filter: ${escapeHtml(query || "(none)")} | Exported: ${escapeHtml(exportedAt)} | Trunks: ${system.trunks.length}</p>
+<div class="stats"><div class="stat"><strong>${didRecords.length}</strong><div>DIDs</div></div><div class="stat"><strong>${mainSharedCount}</strong><div>Main/shared route DIDs</div></div><div class="stat"><strong>${directCount}</strong><div>Direct endpoints</div></div><div class="stat"><strong>${noDestinationCount}</strong><div>Need attention (None)</div></div></div></section>
+<section class="panel toolbar"><input id="search" placeholder="Search DID, route, extension, queue, IVR, voicemail, person, destination"><select id="route-filter"><option value="all">All routes</option><option value="main">Main/shared route</option><option value="direct">Direct extension or fax</option><option value="voicemail">Voicemail</option><option value="none">No destination</option><option value="other">Other queue/ring group</option></select><button id="expand-all">Expand all</button><button id="collapse-all">Collapse all</button><button id="clear-filters">Clear filters</button></section>
+<section class="panel"><h2>DID Overview</h2><table><thead><tr><th>DID</th><th>Label/name</th><th>Office-hours destination</th><th>Result/notes</th><th></th></tr></thead><tbody id="overview-body">${overviewRows}</tbody></table></section>
+<section class="panel"><h2>Main Shared Route Summary</h2><p class="meta">Inbound DID(s) → Shared destination → No answer/timeout → IVR/options → final destination (as detected by existing traversal paths).</p></section>
+<section class="panel"><h2>Review Notes</h2><ul class="notes">${reviewNotes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul></section>
+<section><h2>Routing Detail Cards</h2>${cardsHtml}</section></div>
 <script>
 (() => {
   const defaultExpandedDepth = ${defaultExpandedDepth};
-  const details = Array.from(document.querySelectorAll("details.branch"));
-  const expandButton = document.querySelector("#expand-all");
-  const collapseButton = document.querySelector("#collapse-all");
-
-  expandButton?.addEventListener("click", () => {
-    details.forEach((node) => node.open = true);
-  });
-
-  collapseButton?.addEventListener("click", () => {
-    details.forEach((node) => {
+  const searchInput = document.querySelector("#search");
+  const routeFilter = document.querySelector("#route-filter");
+  const cards = Array.from(document.querySelectorAll("[data-did-card]"));
+  const rows = Array.from(document.querySelectorAll("[data-overview-row]"));
+  const branchDetails = () => Array.from(document.querySelectorAll("details.branch"));
+  const applyFilters = () => {
+    const q = (searchInput.value || "").trim().toLowerCase();
+    const filter = routeFilter.value;
+    cards.forEach((card) => {
+      const passSearch = !q || (card.dataset.search || "").includes(q);
+      const passRoute = filter === "all" || card.dataset.category === filter;
+      card.style.display = passSearch && passRoute ? "" : "none";
+    });
+    rows.forEach((row) => {
+      const passSearch = !q || (row.dataset.search || "").includes(q);
+      const passRoute = filter === "all" || row.dataset.category === filter;
+      row.style.display = passSearch && passRoute ? "" : "none";
+    });
+  };
+  document.querySelector("#expand-all")?.addEventListener("click", () => { document.querySelectorAll("details").forEach((n) => n.open = true); });
+  document.querySelector("#collapse-all")?.addEventListener("click", () => {
+    branchDetails().forEach((node) => {
       const depthClass = Array.from(node.classList).find((name) => name.startsWith("depth-"));
-      const depth = Number.parseInt(depthClass?.replace("depth-", "") || "0", 10);
+      const depth = Number.parseInt((depthClass || "depth-0").replace("depth-", ""), 10);
       node.open = depth <= defaultExpandedDepth;
     });
+    cards.forEach((card) => { card.open = false; });
   });
+  document.querySelector("#clear-filters")?.addEventListener("click", () => { searchInput.value = ""; routeFilter.value = "all"; applyFilters(); });
+  searchInput?.addEventListener("input", applyFilters);
+  routeFilter?.addEventListener("change", applyFilters);
+  document.querySelectorAll(".view-btn").forEach((button) => button.addEventListener("click", () => {
+    const target = document.getElementById(button.dataset.target || "");
+    if (!target) return;
+    target.style.display = "";
+    target.open = true;
+    target.querySelectorAll("details.branch").forEach((d) => d.open = true);
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
+  applyFilters();
 })();
 </script>
 </body>
